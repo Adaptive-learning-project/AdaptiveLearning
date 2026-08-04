@@ -1,0 +1,18 @@
+{
+  "task_accuracy": [
+    60.1,
+    98.0
+  ],
+  "attention_span_score": [
+    0.4,
+    0.95
+  ],
+  "fatigue_level": [
+    0.1,
+    0.8
+  ],
+  "efficiency_gain": [
+    5.0,
+    20.0
+  ]
+}
