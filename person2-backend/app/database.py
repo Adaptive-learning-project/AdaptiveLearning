@@ -1,38 +1,19 @@
 import os
-
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-
-# Load environment variables
 load_dotenv()
 
+MONGO_URI = os.getenv("MONGODB_URL", os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+DB_NAME   = os.getenv("DATABASE_NAME", os.getenv("MONGO_DB_NAME", "adaptive_learning"))
 
-# MongoDB connection URL
-MONGODB_URL = os.getenv(
-    "MONGODB_URL",
-    "mongodb://localhost:27017"
-)
+client = MongoClient(MONGO_URI)
+db     = client[DB_NAME]
 
-
-# Database name
-DATABASE_NAME = os.getenv(
-    "DATABASE_NAME",
-    "adaptive_learning"
-)
-
-
-# Create MongoDB client
-client = MongoClient(MONGODB_URL)
-
-
-# Select database
-db = client[DATABASE_NAME]
-
-
-# Collections
-content_versions_collection = db["content_versions"]
-
-questions_collection = db["questions"]
-
-mastery_state_collection = db["mastery_state"]
+# collections
+units_col      = db["units"]          # teacher's topic + subtopics
+subtopics_col  = db["subtopics"]      # individual subtopics
+content_col    = db["content"]        # generated + approved content pieces
+mastery_col    = db["student_mastery"]# per student per subtopic mastery
+attempts_col   = db["attempts"]       # every answer recorded
+escalations_col= db["escalations"]    # escalation alerts
