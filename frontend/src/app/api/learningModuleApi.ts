@@ -1,53 +1,39 @@
 import axios from "axios";
 
-const BASE = axios.create({ baseURL: "http://localhost:5000" });
+const BASE = axios.create({ baseURL: "" }); // proxied via Vite → http://127.0.0.1:5000
 
-// ── topic display metadata ─────────────────────────────────────────────────────
-
-const TOPIC_META: Record<string, { color: string; icon: string; skill: string }> = {
-  "Hosts and access networks": { color: "#7c3aed", icon: "computer",    skill: "Networking Basics"      },
-  "Physical media":            { color: "#0891b2", icon: "cable",        skill: "Hardware Concepts"      },
-  "Packet switching":          { color: "#059669", icon: "swap_horiz",   skill: "Data Transmission"      },
-  "Circuit switching":         { color: "#d97706", icon: "device_hub",   skill: "Network Protocols"      },
-  "Internet structure":        { color: "#dc2626", icon: "language",     skill: "Internet Architecture"  },
-};
-
-function toModule(item: any) {
-  const meta = TOPIC_META[item.id] ?? { color: "#7c3aed", icon: "school", skill: "Computer Networks" };
-  return {
-    _id:          item.id,
-    moduleId:     item.id,
-    title:        item.title,
-    description:  item.description ?? `Learn about ${item.title}`,
-    category:     item.category ?? "Academic",
-    skill:        meta.skill,
-    level:        "Beginner",
-    duration:     item.estimatedTime ?? 15,
-    ageGroups:    ["All ages"],
-    objectives:   [`Understand ${item.title}`],
-    steps:        ["Read content", "Answer question", "Get feedback"],
-    adaptations:  ["Text explanations", "Hints available"],
-    icon:         meta.icon,
-    color:        meta.color,
-    status:       "available",
-  };
-}
-
-const FALLBACK_MODULES = Object.keys(TOPIC_META).map((id) =>
-  toModule({ id, title: id, description: `Learn about ${id}`, estimatedTime: 15 })
-);
-
-// ── API calls ──────────────────────────────────────────────────────────────────
+// ── Student adaptive API (real flow) ──────────────────────────────────────────
+// All topic/content data comes from the backend — nothing hardcoded here.
 
 export const getLearningModules = (_params?: { category?: string }) => {
-  return BASE.get("/api/learning-modules")
-    .then((res) => {
-      const items: any[] = res.data?.data ?? [];
-      return { data: items.map(toModule) };
-    })
-    .catch(() => ({ data: FALLBACK_MODULES }));
+  // Fetch only approved topics from the real student API
+  return BASE.get("/api/student/topics").then((res) => {
+    const topics: any[] = res.data?.topics ?? [];
+    // Only expose topics that have at least one approved subtopic
+    const ready = topics.filter((t: any) => t.approved_subtopics > 0);
+    return {
+      data: ready.map((t: any) => ({
+        _id:         t.unit_id,
+        moduleId:    t.unit_id,
+        title:       t.topic,
+        description: `${t.approved_subtopics} lesson${t.approved_subtopics !== 1 ? "s" : ""} ready`,
+        category:    "Academic",
+        skill:       t.topic,
+        level:       "Adaptive",
+        duration:    t.approved_subtopics * 10,
+        ageGroups:   ["All ages"],
+        objectives:  [`Understand ${t.topic}`],
+        steps:       ["Read content", "Answer question", "Get adaptive feedback"],
+        adaptations: ["Hint system", "Simplified re-explanation", "Teacher escalation"],
+        icon:        "school",
+        color:       "#7c3aed",
+        status:      "available",
+      })),
+    };
+  });
 };
 
+// Not used in the new adaptive flow — kept for backward compat with LearningModuleDetailsPage
 export const getLearningModule = (
   moduleId: string,
   difficulty = "easy",

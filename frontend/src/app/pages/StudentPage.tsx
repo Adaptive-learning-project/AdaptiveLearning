@@ -156,8 +156,10 @@ function TopicSelect({ studentId, onSelect }: {
   useEffect(() => {
     studentApi.getTopics()
       .then(d => {
-        setTopics(d.topics);
-        if (d.topics.length > 0) speak(`Hi ${studentId}! Choose what you want to learn today.`);
+        // Only show topics that have at least one approved subtopic
+        const ready = (d.topics as any[]).filter((t: any) => t.approved_subtopics > 0);
+        setTopics(ready);
+        if (ready.length > 0) speak(`Hi ${studentId}! Choose what you want to learn today.`);
         else speak("No topics are ready yet. Ask your teacher!");
       })
       .catch(() => {})
@@ -325,31 +327,112 @@ function LearningLoop({ studentId, unitId, topic, onDone }: {
 
   if (phase === "completed") return (
     <Screen>
-      <div style={{ textAlign: "center", paddingTop: 40 }}>
-        <div style={{ fontSize: 72 }}>🎉</div>
-        <h2 style={{ fontFamily: P, fontWeight: 900, color: "#4ade80", fontSize: 32, margin: "16px 0 8px" }}>
-          You did it!
-        </h2>
-        <p style={{ fontFamily: P, color: "#94a3b8", fontSize: 16 }}>{activity?.message}</p>
-        {activity?.subtopics && (
-          <div style={{ marginTop: 24, textAlign: "left" }}>
-            {activity.subtopics.map((s: any) => (
-              <div key={s.subtopic} style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "12px 16px", background: "rgba(255,255,255,.04)",
-                borderRadius: 12, marginBottom: 8,
+      <div style={{ paddingTop: 24 }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ fontSize: 72 }}>🎉</div>
+          <h2 style={{ fontFamily: P, fontWeight: 900, color: "#4ade80", fontSize: 32, margin: "16px 0 4px" }}>
+            Topic Complete!
+          </h2>
+          <p style={{ fontFamily: P, color: "#94a3b8", fontSize: 16, margin: 0 }}>
+            {activity?.message}
+          </p>
+          {activity?.avg_mastery !== undefined && (
+            <div style={{
+              display: "inline-block", marginTop: 16, padding: "8px 24px",
+              background: activity.avg_mastery >= 70
+                ? "rgba(34,197,94,.12)" : "rgba(245,158,11,.12)",
+              border: `1px solid ${activity.avg_mastery >= 70 ? "rgba(34,197,94,.3)" : "rgba(245,158,11,.3)"}`,
+              borderRadius: 99,
+            }}>
+              <span style={{
+                fontFamily: P, fontWeight: 900, fontSize: 22,
+                color: activity.avg_mastery >= 70 ? "#4ade80" : "#fbbf24",
               }}>
-                <span style={{ fontFamily: P, color: "#f1f5f9" }}>{s.subtopic}</span>
-                <span style={{
-                  fontFamily: P, fontWeight: 700, fontSize: 15,
-                  color: s.mastery_score >= 80 ? "#4ade80" : s.status === "skipped" ? "#f59e0b" : "#f87171",
+                {activity.avg_mastery}
+              </span>
+              <span style={{ fontFamily: P, color: "#64748b", fontSize: 14, marginLeft: 6 }}>
+                avg mastery
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Per-subtopic mastery table */}
+        {activity?.subtopics && activity.subtopics.length > 0 && (
+          <div style={{ marginBottom: 28 }}>
+            <p style={{
+              fontFamily: P, fontSize: 12, fontWeight: 700, color: "#475569",
+              letterSpacing: "0.1em", marginBottom: 12, textTransform: "uppercase",
+            }}>
+              Completion Report
+            </p>
+
+            {/* header row */}
+            <div style={{
+              display: "grid", gridTemplateColumns: "1fr 80px 100px",
+              padding: "6px 16px", marginBottom: 4,
+            }}>
+              <span style={{ fontFamily: P, fontSize: 11, color: "#475569", fontWeight: 700, letterSpacing: "0.08em" }}>SUBTOPIC</span>
+              <span style={{ fontFamily: P, fontSize: 11, color: "#475569", fontWeight: 700, letterSpacing: "0.08em", textAlign: "center" }}>SCORE</span>
+              <span style={{ fontFamily: P, fontSize: 11, color: "#475569", fontWeight: 700, letterSpacing: "0.08em", textAlign: "right" }}>STATUS</span>
+            </div>
+
+            {activity.subtopics.map((s: any, i: number) => {
+              const scoreColor = s.mastery_score >= 80 ? "#4ade80" : s.mastery_score >= 50 ? "#f59e0b" : "#f87171";
+              const statusIcon = s.status === "mastered" ? "✅ Mastered"
+                : s.status === "skipped"  ? "⚡ Skipped"
+                : s.status === "escalated" ? "🙋 Escalated"
+                : "⏳ In progress";
+              const statusColor = s.status === "mastered" ? "#4ade80"
+                : s.status === "skipped"  ? "#f59e0b"
+                : s.status === "escalated" ? "#f87171"
+                : "#94a3b8";
+
+              return (
+                <div key={i} style={{
+                  display: "grid", gridTemplateColumns: "1fr 80px 100px",
+                  alignItems: "center", padding: "12px 16px",
+                  background: i % 2 === 0 ? "rgba(255,255,255,.03)" : "transparent",
+                  borderRadius: 10, marginBottom: 4,
+                  border: "1px solid rgba(255,255,255,.04)",
                 }}>
-                  {s.mastery_score}/100 {s.status === "skipped" ? "⚡ skipped" : s.mastery_score >= 80 ? "✓" : ""}
-                </span>
-              </div>
-            ))}
+                  <span style={{
+                    fontFamily: P, fontWeight: 600, color: "#e2e8f0", fontSize: 14,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    paddingRight: 8,
+                  }}>
+                    {i + 1}. {s.subtopic}
+                  </span>
+
+                  {/* score + mini bar */}
+                  <div style={{ textAlign: "center" }}>
+                    <span style={{ fontFamily: P, fontWeight: 900, fontSize: 16, color: scoreColor }}>
+                      {s.mastery_score}
+                    </span>
+                    <span style={{ fontFamily: P, fontSize: 11, color: "#475569" }}>/100</span>
+                    <div style={{
+                      marginTop: 4, height: 4, borderRadius: 99,
+                      background: "rgba(255,255,255,.08)", overflow: "hidden",
+                    }}>
+                      <div style={{
+                        width: `${s.mastery_score}%`, height: "100%",
+                        background: scoreColor, borderRadius: 99,
+                      }} />
+                    </div>
+                  </div>
+
+                  <span style={{
+                    fontFamily: P, fontSize: 12, fontWeight: 700,
+                    color: statusColor, textAlign: "right",
+                  }}>
+                    {statusIcon}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
+
         <BigBtn onClick={onDone}>← Back to Topics</BigBtn>
       </div>
     </Screen>

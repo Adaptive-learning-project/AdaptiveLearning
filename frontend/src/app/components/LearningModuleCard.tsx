@@ -128,7 +128,7 @@ export default function LearningModuleCard({
 
         <button
           onClick={() =>
-            navigate(`/learning-modules/${module.moduleId}`)
+            navigate(`/student`)
           }
           className="w-full mt-5 py-3 rounded-xl"
           style={{
@@ -140,7 +140,7 @@ export default function LearningModuleCard({
             cursor: "pointer",
           }}
         >
-          View Module
+          Start Learning
           <span
             className="material-icons-round"
             style={{
