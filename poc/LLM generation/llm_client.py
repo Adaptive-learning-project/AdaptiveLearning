@@ -20,11 +20,29 @@ from schemas import SCHEMA_MAP
 load_dotenv()
 
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 USE_MOCK_LLM: bool = os.getenv("USE_MOCK_LLM", "true").lower() == "true"
 
 MAX_RETRIES: int = 3
 RETRY_DELAY_SECONDS: float = 2.0
+
+# Per-type temperatures — explanations need accuracy, questions need variety
+_TEMPERATURE_MAP: dict[str, float] = {
+    "easy_explanation":   0.30,
+    "medium_explanation": 0.25,
+    "easy_question":      0.65,
+    "medium_question":    0.70,
+    "hint":               0.40,
+}
+
+_SYSTEM_PROMPT = (
+    "You are an expert university lecturer generating content for "
+    "2nd and 3rd-year engineering students studying computer networks "
+    "(Kurose & Ross level). "
+    "Use precise technical terminology, include specific numerical parameters "
+    "and protocol names where relevant, and do NOT over-simplify. "
+    "Return ONLY valid JSON. No markdown fences, no commentary outside the JSON."
+)
 
 
 # ── Mock responses (used when USE_MOCK_LLM=true) ──────────────────────────────
@@ -121,20 +139,26 @@ def _get_mock_response(content_type: str, subtopic: str) -> dict:
 
 # ── Groq caller ────────────────────────────────────────────────────────────────
 
-def _call_groq(prompt: str) -> str:
+def _call_groq(prompt: str, content_type: str = "") -> str:
     """
     Call the Groq API and return the raw response text.
     Uses response_format=json_object to guarantee valid JSON output.
+    Uses a per-type temperature and an engineering-level system prompt.
     Raises RuntimeError if the API call fails.
     """
     try:
         from groq import Groq
         client = Groq(api_key=GROQ_API_KEY)
+        temperature = _TEMPERATURE_MAP.get(content_type, 0.40)
         response = client.chat.completions.create(
             model=GROQ_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=temperature,
             response_format={"type": "json_object"},  # guarantees valid JSON
+            max_tokens=900,
         )
         return response.choices[0].message.content
     except Exception as exc:
@@ -252,7 +276,7 @@ def generate_content(content_type: str, subtopic: str) -> dict:
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             print(f"  [GROQ] Attempt {attempt}/{MAX_RETRIES} — {content_type} for '{subtopic}'")
-            raw = _call_groq(prompt)
+            raw = _call_groq(prompt, content_type)
             data = _extract_json(raw)
             data = _normalize(data, content_type, subtopic)
             validated = _validate(data, content_type)

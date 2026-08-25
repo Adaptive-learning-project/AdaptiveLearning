@@ -87,18 +87,20 @@ def generate_content(unit_id: str, background_tasks: BackgroundTasks):
     unit = units_col.find_one({"_id": ObjectId(unit_id)})
     if not unit:
         raise HTTPException(404, "Unit not found")
-    background_tasks.add_task(_generate_all_content, unit_id, unit["topic"])
+    # Pass reference_text so the LLM grounds content in teacher's material
+    reference_text = unit.get("reference_text", "") or ""
+    background_tasks.add_task(_generate_all_content, unit_id, unit["topic"], reference_text)
     return {"message": "Generation started."}
 
 
-def _generate_all_content(unit_id: str, topic: str):
+def _generate_all_content(unit_id: str, topic: str, reference_text: str = ""):
     from app.llm_generator import generate_all, generate_fallback
 
     subs = list(subtopics_col.find({"unit_id": unit_id}))
     for sub in subs:
         sub_id = str(sub["_id"])
         try:
-            generated = generate_all(topic, sub["name"])
+            generated = generate_all(topic, sub["name"], reference_text)
         except Exception:
             traceback.print_exc()
             generated = generate_fallback(topic, sub["name"])
@@ -296,6 +298,12 @@ def next_activity(student_id: str, unit_id: str):
     q_type       = decision["question_type"]
     show_hint    = decision["show_hint"]
 
+    # High-mastery students (score >= 70) get a harder question to stay challenged.
+    # Only applies when the engine would normally serve the standard question
+    # (i.e. no support sequence is active — consecutive_wrong == 0).
+    if mastery_score >= 70 and consecutive_wrong == 0:
+        q_type = "hard_question"
+
     content_piece  = content_col.find_one({"subtopic_id": sub_id, "type": content_type,  "approved": True})
     question_piece = content_col.find_one({"subtopic_id": sub_id, "type": q_type,        "approved": True})
     hint_piece     = content_col.find_one({"subtopic_id": sub_id, "type": "hint",        "approved": True})
@@ -304,6 +312,7 @@ def next_activity(student_id: str, unit_id: str):
     if not content_piece:
         content_piece = content_col.find_one({"subtopic_id": sub_id, "type": "main_explanation", "approved": True})
     if not question_piece:
+        # hard_question might not exist in older content — fall back gracefully
         question_piece = content_col.find_one({"subtopic_id": sub_id, "type": "question", "approved": True})
 
     if not content_piece or not question_piece:
