@@ -34,6 +34,18 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',   // bind on all interfaces — fixes IPv4/IPv6 localhost issue
     port: 5173,        //   and allows access from other machines on the network
+    proxy: {
+      // Forward all /api and /health requests to the backend
+      // This avoids any CORS or localhost resolution issues in the browser
+      '/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+    },
   },
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
