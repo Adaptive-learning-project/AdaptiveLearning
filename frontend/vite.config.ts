@@ -31,6 +31,11 @@ export default defineConfig({
     },
   },
 
+  server: {
+    host: '0.0.0.0',   // bind on all interfaces — fixes IPv4/IPv6 localhost issue
+    port: 5173,        //   and allows access from other machines on the network
+  },
+
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })

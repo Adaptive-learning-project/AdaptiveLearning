@@ -33,6 +33,6 @@ echo Press Ctrl+C to stop the server
 echo.
 
 REM Start the server
-python -m uvicorn app.main:app --host localhost --port 5000 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
 
 pause
