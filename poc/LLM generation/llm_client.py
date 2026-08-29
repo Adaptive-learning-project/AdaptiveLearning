@@ -20,7 +20,6 @@ from schemas import SCHEMA_MAP
 load_dotenv()
 
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 USE_MOCK_LLM: bool = os.getenv("USE_MOCK_LLM", "true").lower() == "true"
 
 MAX_RETRIES: int = 3

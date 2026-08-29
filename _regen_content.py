@@ -4,7 +4,7 @@ Clears old content for each subtopic then regenerates via the LLM.
 """
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "person2-backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
 from pymongo import MongoClient
 from bson import ObjectId

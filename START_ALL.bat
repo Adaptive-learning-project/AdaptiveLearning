@@ -29,8 +29,8 @@ if errorlevel 1 (
 
 REM Start Backend
 echo [2/4] Starting Backend Server...
-cd /d "D:\AdaptiveLearning\person2-backend"
-start "Backend - Person2" cmd /k "python -m uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload"
+cd /d "D:\AdaptiveLearning\backend"
+start "Backend" cmd /k "python -m uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload"
 timeout /t 3 /nobreak
 
 REM Start Frontend
