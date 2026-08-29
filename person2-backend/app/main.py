@@ -1,33 +1,44 @@
 from fastapi import FastAPI, HTTPException
 
+from app.schemas import AnswerRequest
+
 from app.database import (
+    client,
     content_versions_collection,
     questions_collection,
-    mastery_state_collection
+    mastery_state_collection,
+    attempts_collection,
+    decisions_collection
 )
 
-from app.schemas import AnswerRequest
+from app.bkt import (
+    update_mastery,
+    P_L0
+)
+
+from app.decision import create_decision
 
 
 # ============================================================
-# CREATE FASTAPI APPLICATION
+# FASTAPI APPLICATION
 # ============================================================
 
 app = FastAPI(
     title="Adaptive Learning Platform - Person 2",
-    description="MongoDB based answer grading and mastery API",
-    version="1.0.0"
+    description="BKT + MongoDB Answer Grading and Mastery API",
+    version="2.0.0"
 )
 
 
 # ============================================================
-# HOME ROUTE
+# HOME
 # ============================================================
 
 @app.get("/")
 def home():
+
     return {
-        "message": "Person 2 API is running"
+        "message": "Person 2 Adaptive Learning API is running"
     }
 
 
@@ -39,9 +50,7 @@ def home():
 def health():
 
     try:
-        from app.database import client
 
-        # Check MongoDB connection
         client.admin.command("ping")
 
         return {
@@ -59,15 +68,17 @@ def health():
 
 
 # ============================================================
-# POST /answer
+# POST /api/submit
 # ============================================================
 
-@app.post("/answer")
-def submit_answer(request: AnswerRequest):
+@app.post("/api/submit")
+def submit_adaptive_answer(
+    request: AnswerRequest
+):
 
-    # --------------------------------------------------------
+    # ========================================================
     # 1. FIND QUESTION
-    # --------------------------------------------------------
+    # ========================================================
 
     question = questions_collection.find_one(
         {
@@ -83,48 +94,31 @@ def submit_answer(request: AnswerRequest):
         )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # 2. GET CORRECT ANSWER
-    # --------------------------------------------------------
+    # ========================================================
 
     correct_answer = str(
-        question["correct_answer"]
-    )
+        question.get("correct_answer", "")
+    ).strip().lower()
 
     student_answer = str(
         request.answer
-    )
+    ).strip().lower()
 
 
-    # --------------------------------------------------------
-    # 3. NORMALIZE ANSWERS
-    # --------------------------------------------------------
-
-    correct_answer = (
-        correct_answer
-        .strip()
-        .lower()
-    )
-
-    student_answer = (
-        student_answer
-        .strip()
-        .lower()
-    )
-
-
-    # --------------------------------------------------------
-    # 4. CHECK ANSWER
-    # --------------------------------------------------------
+    # ========================================================
+    # 3. CHECK ANSWER
+    # ========================================================
 
     correct = (
         student_answer == correct_answer
     )
 
 
-    # --------------------------------------------------------
-    # 5. FIND CONTENT VERSION
-    # --------------------------------------------------------
+    # ========================================================
+    # 4. FIND CONTENT VERSION
+    # ========================================================
 
     content = content_versions_collection.find_one(
         {
@@ -141,16 +135,16 @@ def submit_answer(request: AnswerRequest):
         )
 
 
-    # --------------------------------------------------------
-    # 6. GET SUBTOPIC ID
-    # --------------------------------------------------------
+    # ========================================================
+    # 5. GET SUBTOPIC
+    # ========================================================
 
     subtopic_id = content["subtopic_id"]
 
 
-    # --------------------------------------------------------
-    # 7. FIND MASTERY FOR THIS STUDENT + SUBTOPIC
-    # --------------------------------------------------------
+    # ========================================================
+    # 6. FIND STUDENT MASTERY
+    # ========================================================
 
     mastery = mastery_state_collection.find_one(
         {
@@ -160,61 +154,43 @@ def submit_answer(request: AnswerRequest):
     )
 
 
-    # --------------------------------------------------------
-    # 8. CREATE MASTERY RECORD IF IT DOES NOT EXIST
-    # --------------------------------------------------------
+    # ========================================================
+    # 7. CREATE INITIAL MASTERY
+    # ========================================================
 
     if mastery is None:
 
-        # Starting mastery score
-        mastery_score = 0
+        previous_mastery = P_L0
 
         mastery_state_collection.insert_one(
             {
                 "student_id": request.student_id,
                 "subtopic_id": subtopic_id,
-                "mastery_score": mastery_score
+                "mastery_probability": previous_mastery
             }
         )
 
     else:
 
-        # Existing student's score
-        mastery_score = mastery.get(
-            "mastery_score",
-            0
+        previous_mastery = mastery.get(
+            "mastery_probability",
+            P_L0
         )
 
 
-    # --------------------------------------------------------
-    # 9. UPDATE SCORE
-    # --------------------------------------------------------
+    # ========================================================
+    # 8. BKT UPDATE
+    # ========================================================
 
-    if correct:
-
-        mastery_score += 10
-
-    else:
-
-        mastery_score -= 10
-
-
-    # --------------------------------------------------------
-    # 10. LIMIT SCORE BETWEEN 0 AND 100
-    # --------------------------------------------------------
-
-    mastery_score = max(
-        0,
-        min(
-            100,
-            mastery_score
-        )
+    new_mastery = update_mastery(
+        previous_mastery,
+        correct
     )
 
 
-    # --------------------------------------------------------
-    # 11. UPDATE ONLY THIS STUDENT'S RECORD
-    # --------------------------------------------------------
+    # ========================================================
+    # 9. SAVE NEW MASTERY
+    # ========================================================
 
     mastery_state_collection.update_one(
         {
@@ -223,21 +199,69 @@ def submit_answer(request: AnswerRequest):
         },
         {
             "$set": {
-                "mastery_score": mastery_score
+                "mastery_probability": new_mastery
             }
         }
     )
 
 
-    # --------------------------------------------------------
-    # 12. RETURN RESULT
-    # --------------------------------------------------------
+    # ========================================================
+    # 10. SAVE ATTEMPT
+    # ========================================================
+
+    attempts_collection.insert_one(
+        {
+            "student_id": request.student_id,
+            "question_id": request.question_id,
+            "subtopic_id": subtopic_id,
+            "correct": correct,
+            "previous_mastery": previous_mastery,
+            "new_mastery": new_mastery
+        }
+    )
+
+
+    # ========================================================
+    # 11. CREATE ADAPTIVE DECISION
+    # ========================================================
+
+    decision = create_decision(
+        student_id=request.student_id,
+        subtopic_id=subtopic_id,
+        mastery_probability=new_mastery
+    )
+
+
+    # ========================================================
+    # 12. SAVE DECISION
+    # ========================================================
+
+    decisions_collection.insert_one(
+        decision
+    )
+
+
+    # ========================================================
+    # 13. RETURN RESULT
+    # ========================================================
 
     return {
+
         "student_id": request.student_id,
+
         "question_id": request.question_id,
+
+        "subtopic_id": subtopic_id,
+
         "correct": correct,
-        "mastery_score": mastery_score
+
+        "previous_mastery": previous_mastery,
+
+        "new_mastery": new_mastery,
+
+        "status": decision["status"],
+
+        "decision": decision
     }
 
 
@@ -246,7 +270,9 @@ def submit_answer(request: AnswerRequest):
 # ============================================================
 
 @app.get("/mastery/{student_id}")
-def get_student_mastery(student_id: int):
+def get_student_mastery(
+    student_id: int
+):
 
     records = list(
         mastery_state_collection.find(
@@ -260,6 +286,64 @@ def get_student_mastery(student_id: int):
     )
 
     return {
+
         "student_id": student_id,
+
         "mastery_records": records
+    }
+
+
+# ============================================================
+# GET STUDENT ATTEMPTS
+# ============================================================
+
+@app.get("/attempts/{student_id}")
+def get_student_attempts(
+    student_id: int
+):
+
+    records = list(
+        attempts_collection.find(
+            {
+                "student_id": student_id
+            },
+            {
+                "_id": 0
+            }
+        )
+    )
+
+    return {
+
+        "student_id": student_id,
+
+        "attempts": records
+    }
+
+
+# ============================================================
+# GET STUDENT DECISIONS
+# ============================================================
+
+@app.get("/decisions/{student_id}")
+def get_student_decisions(
+    student_id: int
+):
+
+    records = list(
+        decisions_collection.find(
+            {
+                "student_id": student_id
+            },
+            {
+                "_id": 0
+            }
+        )
+    )
+
+    return {
+
+        "student_id": student_id,
+
+        "decisions": records
     }

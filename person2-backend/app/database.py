@@ -4,35 +4,52 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 
 
-# Load environment variables
+# ============================================================
+# LOAD ENVIRONMENT VARIABLES
+# ============================================================
+
 load_dotenv()
 
 
-# MongoDB connection URL
+# ============================================================
+# MONGODB CONFIGURATION
+# ============================================================
+
 MONGODB_URL = os.getenv(
     "MONGODB_URL",
     "mongodb://localhost:27017"
 )
 
-
-# Database name
 DATABASE_NAME = os.getenv(
     "DATABASE_NAME",
     "adaptive_learning"
 )
 
 
-# Create MongoDB client
+# ============================================================
+# MONGODB CLIENT
+# ============================================================
+
 client = MongoClient(MONGODB_URL)
 
 
-# Select database
+# ============================================================
+# DATABASE
+# ============================================================
+
 db = client[DATABASE_NAME]
 
 
-# Collections
+# ============================================================
+# COLLECTIONS
+# ============================================================
+
 content_versions_collection = db["content_versions"]
 
 questions_collection = db["questions"]
 
 mastery_state_collection = db["mastery_state"]
+
+attempts_collection = db["attempts"]
+
+decisions_collection = db["decisions"]
