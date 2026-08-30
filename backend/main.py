@@ -1,102 +1,305 @@
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import FastAPI, HTTPException
+from app.schemas import AnswerRequest
 
-from .database import get_db
-from .models import MasteryState, ContentVersion, Question, Decision
-from .adaptive_engine import decide_next_activity
+from app.database import (
+    client,
+    content_versions_collection,
+    questions_collection,
+    mastery_state_collection,
+    attempts_collection
+)
 
+from app.schemas import AnswerRequest
 
-app = FastAPI(
-    title="Adaptive Learning API",
-    version="0.1.0"
+from app.bkt import (
+    update_mastery,
+    P_L0
 )
 
 
-# --------------------------------------------------
-# Test route
-# --------------------------------------------------
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
+
+app = FastAPI(
+    title="Adaptive Learning Platform - Person 2",
+    description="BKT + MongoDB Answer Grading and Mastery API",
+    version="2.0.0"
+)
+
+
+# ============================================================
+# HOME
+# ============================================================
 
 @app.get("/")
 def home():
+
     return {
-        "message": "Adaptive Learning API is running"
+        "message": "Person 2 Adaptive Learning API is running"
     }
 
 
-# --------------------------------------------------
-# Adaptive Next Activity API
-# --------------------------------------------------
+# ============================================================
+# HEALTH
+# ============================================================
 
-@app.get("/next")
-def get_next_activity(
-    student_id: int,
-    subtopic_id: int,
-    db: Session = Depends(get_db)
+@app.get("/health")
+def health():
+
+    try:
+
+        client.admin.command("ping")
+
+        return {
+            "status": "healthy",
+            "mongodb": "connected"
+        }
+
+    except Exception as e:
+
+        return {
+            "status": "unhealthy",
+            "mongodb": "disconnected",
+            "error": str(e)
+        }
+
+
+# ============================================================
+# SUBMIT ANSWER
+# ============================================================
+
+@app.post("/api/submit")
+def submit_adaptive_answer(
+    request: AnswerRequest
 ):
 
-    # 1. Read student's mastery
-    mastery = db.query(MasteryState).filter(
-        MasteryState.student_id == student_id,
-        MasteryState.subtopic_id == subtopic_id
-    ).first()
+    # --------------------------------------------------------
+    # 1. Find question
+    # --------------------------------------------------------
 
-    if mastery is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Mastery state not found"
-        )
-
-    mastery_score = mastery.mastery_score
-
-
-    # 2. Make adaptive decision
-    decision = decide_next_activity(mastery_score)
-
-    difficulty = decision["difficulty"]
-    reason = decision["reason"]
-
-
-    # 3. Fetch content according to difficulty
-    content = db.query(ContentVersion).filter(
-        ContentVersion.subtopic_id == subtopic_id,
-        ContentVersion.difficulty == difficulty
-    ).first()
-
-    if content is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"{difficulty} content not found"
-        )
-
-
-    # 4. Fetch question
-    question = db.query(Question).filter(
-        Question.content_version_id == content.id
-    ).first()
+    question = questions_collection.find_one(
+        {
+            "question_id": request.question_id
+        }
+    )
 
     if question is None:
+
         raise HTTPException(
             status_code=404,
             detail="Question not found"
         )
 
 
-    # 5. Store adaptive decision
-    new_decision = Decision(
-        student_id=student_id,
-        subtopic_id=subtopic_id,
-        mastery_score=mastery_score,
-        difficulty=difficulty,
-        reason=reason
+    # --------------------------------------------------------
+    # 2. Compare answers
+    # --------------------------------------------------------
+
+    correct_answer = str(
+        question["correct_answer"]
+    ).strip().lower()
+
+    student_answer = str(
+        request.answer
+    ).strip().lower()
+
+    correct = (
+        student_answer == correct_answer
     )
 
-    db.add(new_decision)
-    db.commit()
+
+    # --------------------------------------------------------
+    # 3. Find content
+    # --------------------------------------------------------
+
+    content = content_versions_collection.find_one(
+        {
+            "content_version_id":
+                question["content_version_id"]
+        }
+    )
+
+    if content is None:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Content version not found"
+        )
 
 
-    # 6. Return next activity
+    subtopic_id = content["subtopic_id"]
+
+
+    # --------------------------------------------------------
+    # 4. Find student's mastery
+    # --------------------------------------------------------
+
+    mastery = mastery_state_collection.find_one(
+        {
+            "student_id": request.student_id,
+            "subtopic_id": subtopic_id
+        }
+    )
+
+
+    # --------------------------------------------------------
+    # 5. Create initial mastery if necessary
+    # --------------------------------------------------------
+
+    if mastery is None:
+
+        previous_mastery = P_L0
+
+        mastery_state_collection.insert_one(
+            {
+                "student_id": request.student_id,
+                "subtopic_id": subtopic_id,
+                "mastery_probability": previous_mastery
+            }
+        )
+
+    else:
+
+        previous_mastery = mastery.get(
+            "mastery_probability",
+            P_L0
+        )
+
+
+    # --------------------------------------------------------
+    # 6. BKT UPDATE
+    # --------------------------------------------------------
+
+    new_mastery = update_mastery(
+        previous_mastery,
+        correct
+    )
+
+
+    # --------------------------------------------------------
+    # 7. Save mastery
+    # --------------------------------------------------------
+
+    mastery_state_collection.update_one(
+        {
+            "student_id": request.student_id,
+            "subtopic_id": subtopic_id
+        },
+        {
+            "$set": {
+                "mastery_probability": new_mastery
+            }
+        }
+    )
+
+
+    # --------------------------------------------------------
+    # 8. Save attempt
+    # --------------------------------------------------------
+
+    attempts_collection.insert_one(
+        {
+            "student_id": request.student_id,
+            "question_id": request.question_id,
+            "subtopic_id": subtopic_id,
+            "correct": correct,
+            "previous_mastery": previous_mastery,
+            "new_mastery": new_mastery
+        }
+    )
+
+
+    # --------------------------------------------------------
+    # 9. Determine learning status
+    # --------------------------------------------------------
+
+    if new_mastery >= 0.85:
+
+        status = "MASTERED"
+
+    elif new_mastery < 0.40:
+
+        status = "NEEDS_REMEDIATION"
+
+    else:
+
+        status = "CONTINUE"
+
+
+    # --------------------------------------------------------
+    # 10. Return result
+    # --------------------------------------------------------
+
     return {
-        "content_text": content.content_text,
-        "question_text": question.question_text,
-        "hint_text": content.hint_text
+
+        "student_id": request.student_id,
+
+        "question_id": request.question_id,
+
+        "subtopic_id": subtopic_id,
+
+        "correct": correct,
+
+        "previous_mastery": previous_mastery,
+
+        "new_mastery": new_mastery,
+
+        "status": status
+    }
+
+
+# ============================================================
+# GET MASTERY
+# ============================================================
+
+@app.get("/mastery/{student_id}")
+def get_student_mastery(
+    student_id: int
+):
+
+    records = list(
+        mastery_state_collection.find(
+            {
+                "student_id": student_id
+            },
+            {
+                "_id": 0
+            }
+        )
+    )
+
+    return {
+
+        "student_id": student_id,
+
+        "mastery_records": records
+    }
+
+
+# ============================================================
+# GET ATTEMPTS
+# ============================================================
+
+@app.get("/attempts/{student_id}")
+def get_student_attempts(
+    student_id: int
+):
+
+    records = list(
+        attempts_collection.find(
+            {
+                "student_id": student_id
+            },
+            {
+                "_id": 0
+            }
+        )
+    )
+
+    return {
+
+        "student_id": student_id,
+
+        "attempts": records
     }
