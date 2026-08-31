@@ -36,6 +36,16 @@ export const studentApi = {
   getTopics: () =>
     api.get("/api/student/topics").then(r => r.data),
 
+  getDiagnostic: (student_id: string, unit_id: string) =>
+    api.get("/api/student/diagnostic", { params: { student_id, unit_id } }).then(r => r.data),
+
+  submitDiagnostic: (data: {
+    student_id: string;
+    unit_id: string;
+    answers: { subtopic_id: string; selected_option: number }[];
+  }) =>
+    api.post("/api/student/diagnostic/submit", data).then(r => r.data),
+
   getNextActivity: (student_id: string, unit_id: string) =>
     api.get("/api/student/next-activity", { params: { student_id, unit_id } }).then(r => r.data),
 
