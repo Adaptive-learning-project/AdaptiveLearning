@@ -14,7 +14,7 @@ The system is now fully functional and ready to run end-to-end.
 
 ### 1. Backend API Enhancement ✅
 
-**File Modified:** `person2-backend/app/main.py`
+**File Modified:** `backend/app/main.py`
 
 **Changes:**
 - Added `CORSMiddleware` to enable cross-origin requests from frontend
@@ -252,7 +252,7 @@ curl "http://localhost:5000/api/learning-modules/Hosts and access networks?diffi
 
 | File | Changes | Lines |
 |------|---------|-------|
-| `person2-backend/app/main.py` | Added CORS + 3 new endpoints | +150 |
+| `backend/app/main.py` | Added CORS + 3 new endpoints | +150 |
 | `frontend/src/app/api/learningModuleApi.ts` | Updated API client | ±10 |
 | `INTEGRATION_GUIDE.md` | New documentation | +242 |
 | `CHANGES_SUMMARY.md` | New documentation | +207 |
