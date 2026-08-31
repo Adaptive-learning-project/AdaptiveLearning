@@ -1018,19 +1018,7 @@ export default function LearningModulesPage() {
                   type="button"
                   onClick={() => {
                     setShowMission(false);
-
-                    /*
-                     * IMPORTANT:
-                     * We intentionally do not change your
-                     * existing navigation/API here.
-                     *
-                     * Later we can connect this button to
-                     * the actual activity route.
-                     */
-                    console.log(
-                      "Launch mission:",
-                      selectedModule
-                    );
+                    window.location.href = "/student";
                   }}
                   className="flex-1 rounded-xl bg-violet-500 py-3 text-base font-black text-white shadow-lg shadow-violet-950/40 transition hover:-translate-y-1 hover:bg-violet-400"
                 >

@@ -28,6 +28,9 @@ import MemoryGame from "./games/MemoryGame";
 import LearningScreenPage from "./pages/LearningScreenPage";
 import LearningModulesPage from "./pages/LearningModulesPage";
 import LearningModuleDetailsPage from "./pages/LearningModuleDetailsPage";
+import TeacherPage from "./pages/TeacherPage";
+import StudentPage from "./pages/StudentPage";
+
 
 
 const router = createBrowserRouter([
@@ -320,6 +323,21 @@ const router = createBrowserRouter([
         <AdminDashboardPage />
       </RoleProtectedRoute>
     ),
+  },
+
+
+  /* =========================================================
+     ADAPTIVE LEARNING — NEW FLOWS
+  ========================================================= */
+
+  {
+    path: "/teacher",
+    element: <TeacherPage />,
+  },
+
+  {
+    path: "/student",
+    element: <StudentPage />,
   },
 
 
