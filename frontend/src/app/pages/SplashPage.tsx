@@ -650,7 +650,24 @@ export default function SplashPage() {
             ))}
 
             <Link
-              to="/login"
+              to="/student"
+              style={{
+                padding: "8px 15px",
+                borderRadius: 99,
+                background: "linear-gradient(90deg,#059669,#0891b2)",
+                color: "#FFFFFF",
+                fontFamily: P,
+                fontWeight: 800,
+                fontSize: 13,
+                textDecoration: "none",
+                boxShadow: "0 0 20px rgba(6,182,212,.25)",
+              }}
+            >
+              Student →
+            </Link>
+
+            <Link
+              to="/teacher"
               style={{
                 padding:
                   "8px 15px",

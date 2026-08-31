@@ -78,11 +78,6 @@ for c in INPUT_COLS:
     print(f"    {c:<30}  mean={s['mean']:>7.2f}  std={s['std']:>6.2f}  "
           f"min={s['min']:>6.2f}  max={s['max']:>6.2f}")
 
-print(f"\n  Excluded from features (data leakage):")
-print(f"    performance_score  — r=0.756 with label (label-derived outcome)")
-print(f"    fatigue_level      — r=0.540 with label (label-derived in this dataset)")
-print(f"    efficiency_gain    — r=0.056, downstream outcome metric")
-print(f"    (fatigue is captured indirectly via ALPS energy component)")
 
 print(f"\n  Missing values  : {df.isnull().sum().sum()}")
 print(f"  Duplicates      : {df.duplicated().sum()}")
@@ -132,10 +127,6 @@ raw_w["energy"]         = min(raw_w["energy"], 0.35)
 adj_total = sum(raw_w.values())
 ALPS_W = {k: round(v / adj_total, 4) for k, v in raw_w.items()}
 
-print(f"\n  Step 2 — Domain-adjusted weights (SEN pedagogy constraints):")
-print(f"    attention_span : raised +0.05 above raw (focus is prerequisite for SEN learning)")
-print(f"    energy         : capped at 0.35  (prevents raw 57% dominance — energy alone != learning)")
-print(f"\n  Final ALPS Weights:")
 for c, v in ALPS_W.items():
     bar = "#" * int(v * 40)
     print(f"    {c:<20}  {v:.4f}  ({v*100:.1f}%)  {bar}")
@@ -346,12 +337,6 @@ for name, model in MODELS.items():
 
 print(f"\n  F1 Gain = With ALPS - Without ALPS  (positive = ALPS improves the model)")
 
-# --- Why LR and XGBoost tie ---
-print(f"\n  [4c] Why Logistic Regression and XGBoost score similarly:")
-print(f"       ALPS_Score creates a 19-point class separation in feature space.")
-print(f"       Once this linear dimension exists, a simple linear boundary (LR)")
-print(f"       is sufficient — XGBoost's non-linear trees offer no additional gain.")
-print(f"       This confirms the data IS largely linearly separable AFTER ALPS.")
 
 # --- Separation plots: LR vs XGBoost decision boundary on 2 principal axes ---
 from sklearn.decomposition import PCA
