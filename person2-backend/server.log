@@ -1,7 +1,0 @@
-INFO:     127.0.0.1:52040 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52040 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56519 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56519 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55244 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55244 - "GET /favicon.ico HTTP/1.1" 404 Not Found
-         

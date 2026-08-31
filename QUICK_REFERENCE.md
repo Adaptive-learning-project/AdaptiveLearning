@@ -89,9 +89,9 @@ Difficulty Level:
 
 | File | Purpose | Location |
 |------|---------|----------|
-| main.py | Backend API | `person2-backend/app/main.py` |
+| main.py | Backend API | `backend/app/main.py` |
 | learningModuleApi.ts | Frontend API client | `frontend/src/app/api/` |
-| database.py | MongoDB setup | `person2-backend/app/database.py` |
+| database.py | MongoDB setup | `backend/app/database.py` |
 | generate_content.py | Content generation | `poc/LLM generation/` |
 
 ---

@@ -217,6 +217,334 @@ function TopicSelect({ studentId, onSelect }: {
   );
 }
 
+// ── DIAGNOSTIC SCREEN ─────────────────────────────────────────────────────────
+
+type DiagPhase = "loading" | "questions" | "submitting" | "results";
+
+function DiagnosticScreen({ studentId, unitId, topic, onDone }: {
+  studentId: string; unitId: string; topic: string; onDone: () => void;
+}) {
+  const [phase, setPhase]         = useState<DiagPhase>("loading");
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [answers, setAnswers]     = useState<Record<string, number>>({});  // subtopic_id → selected index
+  const [results, setResults]     = useState<any>(null);
+  const [currentIdx, setCurrentIdx] = useState(0);
+
+  // Load diagnostic questions
+  useEffect(() => {
+    studentApi.getDiagnostic(studentId, unitId)
+      .then(d => {
+        if (d.already_completed) { onDone(); return; }
+        if (!d.questions || d.questions.length === 0) { onDone(); return; }
+        setQuestions(d.questions);
+        setPhase("questions");
+        speak("Let's see what you already know. Answer these questions honestly — there's no penalty!");
+      })
+      .catch(() => onDone()); // if diagnostic fails, skip to learning
+  }, []);
+
+  async function handleSubmit() {
+    // Check all answered
+    if (questions.some(q => answers[q.subtopic_id] === undefined)) return;
+
+    setPhase("submitting");
+    try {
+      const payload = {
+        student_id: studentId,
+        unit_id: unitId,
+        answers: questions.map(q => ({
+          subtopic_id: q.subtopic_id,
+          selected_option: answers[q.subtopic_id] ?? 0,
+        })),
+      };
+      const res = await studentApi.submitDiagnostic(payload);
+      setResults(res);
+      setPhase("results");
+      speak(res.message || "Diagnostic complete! Your learning path has been set.");
+    } catch {
+      onDone(); // on error, skip to learning
+    }
+  }
+
+  const answered = Object.keys(answers).length;
+  const total    = questions.length;
+
+  // ── loading ────────────────────────────────────────────────────────────────
+  if (phase === "loading") return (
+    <Screen>
+      <div style={{ textAlign: "center", paddingTop: 80 }}>
+        <div style={{ fontSize: 56 }}>📋</div>
+        <p style={{ fontFamily: P, color: "#64748b", fontSize: 18, marginTop: 12 }}>
+          Preparing your diagnostic…
+        </p>
+      </div>
+    </Screen>
+  );
+
+  // ── submitting ─────────────────────────────────────────────────────────────
+  if (phase === "submitting") return (
+    <Screen>
+      <div style={{ textAlign: "center", paddingTop: 80 }}>
+        <div style={{ fontSize: 56 }}>⚙️</div>
+        <p style={{ fontFamily: P, color: "#64748b", fontSize: 18, marginTop: 12 }}>
+          Analysing your answers…
+        </p>
+        <p style={{ fontFamily: P, color: "#475569", fontSize: 14, marginTop: 6 }}>
+          Personalising your learning path with BKT
+        </p>
+      </div>
+    </Screen>
+  );
+
+  // ── results ────────────────────────────────────────────────────────────────
+  if (phase === "results" && results) return (
+    <Screen>
+      <div style={{ paddingTop: 16 }}>
+        {/* Header */}
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ fontSize: 64 }}>🎯</div>
+          <h2 style={{ fontFamily: P, fontWeight: 900, color: "#f1f5f9", fontSize: 26, margin: "12px 0 4px" }}>
+            Diagnostic Complete!
+          </h2>
+          <p style={{ fontFamily: P, color: "#94a3b8", fontSize: 15, margin: 0 }}>
+            {results.correct_count}/{results.total} correct · Your learning path is ready
+          </p>
+          <div style={{
+            display: "inline-block", marginTop: 12, padding: "8px 24px",
+            background: results.score_pct >= 60
+              ? "rgba(34,197,94,.12)" : "rgba(245,158,11,.12)",
+            border: `1px solid ${results.score_pct >= 60 ? "rgba(34,197,94,.3)" : "rgba(245,158,11,.3)"}`,
+            borderRadius: 99,
+          }}>
+            <span style={{
+              fontFamily: P, fontWeight: 900, fontSize: 20,
+              color: results.score_pct >= 60 ? "#4ade80" : "#fbbf24",
+            }}>
+              {results.score_pct}%
+            </span>
+          </div>
+        </div>
+
+        {/* Per-subtopic breakdown */}
+        <p style={{
+          fontFamily: P, fontSize: 11, fontWeight: 700, color: "#475569",
+          letterSpacing: "0.1em", marginBottom: 10, textTransform: "uppercase",
+        }}>
+          Starting Zones (set by BKT)
+        </p>
+
+        {results.results.map((r: any, i: number) => {
+          const zoneColor = r.zone === "standard" ? "#f59e0b"
+            : r.zone === "scaffold" ? "#f87171"
+            : r.zone === "challenge" ? "#22c55e"
+            : "#64748b";
+          const zoneLabel = r.zone === "standard" ? "Standard"
+            : r.zone === "scaffold" ? "Needs Help"
+            : r.zone === "challenge" ? "Advanced"
+            : r.zone;
+
+          return (
+            <div key={i} style={{
+              display: "grid", gridTemplateColumns: "1fr auto auto",
+              alignItems: "center", gap: 12,
+              padding: "12px 16px", marginBottom: 8,
+              background: "rgba(255,255,255,.03)",
+              border: "1px solid rgba(255,255,255,.06)", borderRadius: 12,
+            }}>
+              <div>
+                <span style={{ fontFamily: P, fontWeight: 600, color: "#e2e8f0", fontSize: 14 }}>
+                  {i + 1}. {r.subtopic_name}
+                </span>
+                {r.gated && (
+                  <span style={{
+                    marginLeft: 8, fontSize: 11, color: "#f59e0b",
+                    fontFamily: P, fontWeight: 700,
+                  }}>
+                    ⚠ prerequisite gap
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: 18 }}>{r.correct ? "✅" : "❌"}</span>
+              <span style={{
+                fontFamily: P, fontSize: 12, fontWeight: 700,
+                color: zoneColor, background: `${zoneColor}18`,
+                padding: "3px 10px", borderRadius: 99,
+              }}>
+                {zoneLabel}
+              </span>
+            </div>
+          );
+        })}
+
+        <div style={{ marginTop: 8, padding: "12px 16px", borderRadius: 12,
+          background: "rgba(124,58,237,.08)", border: "1px solid rgba(124,58,237,.15)" }}>
+          <p style={{ fontFamily: P, fontSize: 13, color: "#c4b5fd", margin: 0 }}>
+            💡 Your starting difficulty has been personalised. Topics you knew
+            will start at a higher level; topics you didn't will start with
+            simpler explanations.
+          </p>
+        </div>
+
+        <BigBtn
+          onClick={onDone}
+          color="linear-gradient(135deg,#7c3aed,#4f46e5)"
+        >
+          Start Learning →
+        </BigBtn>
+      </div>
+    </Screen>
+  );
+
+  // ── questions ──────────────────────────────────────────────────────────────
+  const q = questions[currentIdx];
+  if (!q) return null;
+
+  return (
+    <Screen>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontFamily: P, fontSize: 13, fontWeight: 700, color: "#7c3aed" }}>
+            📋 DIAGNOSTIC — {topic}
+          </span>
+          <span style={{ fontFamily: P, fontSize: 13, color: "#64748b" }}>
+            {answered}/{total} answered
+          </span>
+        </div>
+        {/* Progress dots */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {questions.map((qt, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentIdx(i)}
+              style={{
+                width: 28, height: 28, borderRadius: "50%", border: "none",
+                cursor: "pointer", fontFamily: P, fontSize: 11, fontWeight: 700,
+                background: i === currentIdx ? "#7c3aed"
+                  : answers[qt.subtopic_id] !== undefined ? "rgba(34,197,94,.3)"
+                  : "rgba(255,255,255,.08)",
+                color: i === currentIdx ? "#fff"
+                  : answers[qt.subtopic_id] !== undefined ? "#4ade80"
+                  : "#475569",
+              }}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Subtopic label */}
+      <div style={{
+        padding: "6px 14px", borderRadius: 99, marginBottom: 16, display: "inline-block",
+        background: "rgba(124,58,237,.1)", border: "1px solid rgba(124,58,237,.2)",
+      }}>
+        <span style={{ fontFamily: P, fontSize: 12, fontWeight: 700, color: "#c4b5fd" }}>
+          {q.subtopic_name}
+        </span>
+      </div>
+
+      {/* Question card */}
+      <div style={{
+        background: "#111827", borderRadius: 20, padding: "24px",
+        border: "1px solid rgba(255,255,255,.06)", marginBottom: 16,
+      }}>
+        <p style={{
+          fontFamily: P, fontSize: 18, fontWeight: 700, color: "#f1f5f9",
+          lineHeight: 1.6, margin: "0 0 12px",
+        }}>
+          {q.text}
+        </p>
+        <SpeakBtn text={q.text} />
+      </div>
+
+      {/* Options */}
+      <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+        {q.options?.map((opt: string, i: number) => {
+          const chosen = answers[q.subtopic_id] === i;
+          return (
+            <button key={i}
+              onClick={() => {
+                setAnswers(prev => ({ ...prev, [q.subtopic_id]: i }));
+                speak(opt);
+              }}
+              style={{
+                padding: "15px 20px", borderRadius: 14,
+                border: `2px solid ${chosen ? "#7c3aed" : "rgba(255,255,255,.08)"}`,
+                background: chosen ? "rgba(124,58,237,.15)" : "rgba(255,255,255,.03)",
+                cursor: "pointer", textAlign: "left", width: "100%",
+                display: "flex", alignItems: "center", gap: 14,
+                transition: "all 0.15s",
+              }}
+            >
+              <span style={{
+                width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                background: chosen ? "#7c3aed" : "rgba(255,255,255,.08)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontFamily: P, fontWeight: 800, fontSize: 13,
+                color: chosen ? "#fff" : "#64748b",
+              }}>
+                {["A", "B", "C", "D"][i]}
+              </span>
+              <span style={{
+                fontFamily: P, fontSize: 16,
+                color: chosen ? "#f1f5f9" : "#94a3b8",
+                fontWeight: chosen ? 700 : 400,
+              }}>
+                {opt}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Navigation */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {currentIdx > 0 ? (
+          <button
+            onClick={() => setCurrentIdx(i => i - 1)}
+            style={{
+              padding: "14px", borderRadius: 12, border: "1px solid rgba(255,255,255,.1)",
+              background: "rgba(255,255,255,.04)", color: "#94a3b8",
+              fontFamily: P, fontWeight: 700, fontSize: 15, cursor: "pointer",
+            }}
+          >
+            ← Back
+          </button>
+        ) : <div />}
+
+        {currentIdx < questions.length - 1 ? (
+          <button
+            onClick={() => setCurrentIdx(i => i + 1)}
+            disabled={answers[q.subtopic_id] === undefined}
+            style={{
+              padding: "14px", borderRadius: 12, border: "none",
+              background: answers[q.subtopic_id] !== undefined
+                ? "linear-gradient(135deg,#7c3aed,#4f46e5)"
+                : "#1e293b",
+              color: "#fff", fontFamily: P, fontWeight: 700, fontSize: 15,
+              cursor: answers[q.subtopic_id] !== undefined ? "pointer" : "default",
+              opacity: answers[q.subtopic_id] !== undefined ? 1 : 0.5,
+            }}
+          >
+            Next →
+          </button>
+        ) : (
+          <BigBtn
+            onClick={handleSubmit}
+            disabled={answered < total}
+            color="linear-gradient(135deg,#059669,#0891b2)"
+          >
+            {answered < total
+              ? `Answer all (${answered}/${total})`
+              : "Submit Diagnostic ✓"}
+          </BigBtn>
+        )}
+      </div>
+    </Screen>
+  );
+}
+
 // ── LEARNING LOOP ──────────────────────────────────────────────────────────────
 
 type Phase = "loading" | "content" | "question" | "feedback" | "escalated" | "completed";
@@ -675,7 +1003,7 @@ function Screen({ children }: { children: React.ReactNode }) {
 
 // ── MAIN ───────────────────────────────────────────────────────────────────────
 
-type SView = "login" | "topics" | "learning";
+type SView = "login" | "topics" | "diagnostic" | "learning";
 
 export default function StudentPage() {
   const [view,      setView]      = useState<SView>(() =>
@@ -691,8 +1019,28 @@ export default function StudentPage() {
     setView("topics");
   }
 
-  if (view === "login")    return <LoginScreen onLogin={onLogin} />;
-  if (view === "topics")   return <TopicSelect studentId={studentId} onSelect={(uid, t) => { setUnitId(uid); setTopic(t); setView("learning"); }} />;
-  if (view === "learning") return <LearningLoop studentId={studentId} unitId={unitId} topic={topic} onDone={() => setView("topics")} />;
+  if (view === "login")      return <LoginScreen onLogin={onLogin} />;
+  if (view === "topics")     return (
+    <TopicSelect
+      studentId={studentId}
+      onSelect={(uid, t) => { setUnitId(uid); setTopic(t); setView("diagnostic"); }}
+    />
+  );
+  if (view === "diagnostic") return (
+    <DiagnosticScreen
+      studentId={studentId}
+      unitId={unitId}
+      topic={topic}
+      onDone={() => setView("learning")}
+    />
+  );
+  if (view === "learning")   return (
+    <LearningLoop
+      studentId={studentId}
+      unitId={unitId}
+      topic={topic}
+      onDone={() => setView("topics")}
+    />
+  );
   return null;
 }
