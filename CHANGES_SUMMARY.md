@@ -7,7 +7,7 @@ Successfully integrated the Adaptive Learning Platform frontend with the backend
 
 ## Changes Made
 
-### 1. Backend Enhancement (`person2-backend/app/main.py`)
+### 1. Backend Enhancement (`backend/app/main.py`)
 
 **Added CORS Support:**
 - Imported `CORSMiddleware` from fastapi
@@ -180,7 +180,7 @@ Successfully integrated the Adaptive Learning Platform frontend with the backend
 
 ## Files Modified
 
-1. `person2-backend/app/main.py` - Enhanced with new endpoints and CORS
+1. `backend/app/main.py` - Enhanced with new endpoints and CORS
 2. `frontend/src/app/api/learningModuleApi.ts` - Updated API client
 3. `INTEGRATION_GUIDE.md` - New comprehensive setup guide
 
