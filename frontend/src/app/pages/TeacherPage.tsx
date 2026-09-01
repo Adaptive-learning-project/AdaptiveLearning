@@ -154,11 +154,11 @@ function ReviewContent({ unitId }: { unitId: string }) {
     const poll = async () => {
       try {
         const s = await teacherApi.getUnitStatus(unitId);
-        setStatus(s.status);
-        if (s.status === "ready") {
+        setStatus(s?.status ?? "generating");
+        if (s?.status === "ready") {
           clearInterval(interval);
           const r = await teacherApi.reviewContent(unitId);
-          setData(r);
+          if (r) setData(r);
         }
       } catch { /* ignore */ }
     };
@@ -172,7 +172,7 @@ function ReviewContent({ unitId }: { unitId: string }) {
     try {
       await teacherApi.approveSubtopic(subtopicId);
       const r = await teacherApi.reviewContent(unitId);
-      setData(r);
+      if (r) setData(r);
     } catch { /* ignore */ } finally {
       setApproving(null);
     }
@@ -197,7 +197,7 @@ function ReviewContent({ unitId }: { unitId: string }) {
   return (
     <div>
       <h2 style={{ fontFamily: P, color: "#f1f5f9" }}>✅ Review & Approve Content</h2>
-      {data.subtopics.map((sub: any) => (
+      {(data.subtopics ?? []).map((sub: any) => (
         <Card key={sub.subtopic_id} style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
@@ -275,7 +275,7 @@ function EscalationDashboard() {
   async function load() {
     try {
       const d = await teacherApi.getEscalations();
-      setEscalations(d.escalations);
+      setEscalations(d?.escalations ?? []);
     } catch { /* ignore */ }
   }
 
@@ -348,7 +348,7 @@ function UnitsList({ onReview }: { onReview: (unitId: string) => void }) {
   const [units, setUnits] = useState<any[]>([]);
 
   useEffect(() => {
-    teacherApi.listUnits(TEACHER_ID).then(d => setUnits(d.units)).catch(() => {});
+    teacherApi.listUnits(TEACHER_ID).then(d => setUnits(d?.units ?? [])).catch(() => {});
   }, []);
 
   if (units.length === 0) {
@@ -391,7 +391,7 @@ export default function TeacherPage() {
 
   useEffect(() => {
     teacherApi.getEscalations()
-      .then(d => setEscalationCount(d.escalations.length))
+      .then(d => setEscalationCount(d?.escalations?.length ?? 0))
       .catch(() => {});
   }, [view]);
 

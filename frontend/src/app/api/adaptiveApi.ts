@@ -1,6 +1,7 @@
-import axios from "axios";
+import apiClient from "./apiClient";
 
-const api = axios.create({ baseURL: "" }); // proxied via Vite → http://127.0.0.1:5000
+// Use the shared apiClient so VITE_API_URL is respected in production (Vercel → Render)
+const api = apiClient;
 
 // ── Teacher ────────────────────────────────────────────────────────────────
 
