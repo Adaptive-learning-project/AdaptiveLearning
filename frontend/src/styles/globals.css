@@ -1,105 +1,13 @@
-/* =========================================================
-   LEARNABLE GALAXY — GLOBAL TYPOGRAPHY
-   ========================================================= */
-
-:root {
-  /* Main typography */
-  --galaxy-page-title: 28px;
-  --galaxy-page-subtitle: 13px;
-
-  --galaxy-section-title: 18px;
-  --galaxy-card-title: 15px;
-
-  --galaxy-body: 13px;
-  --galaxy-body-small: 12px;
-
-  --galaxy-label: 11px;
-  --galaxy-input: 13px;
-
-  --galaxy-button: 12px;
-  --galaxy-navigation: 12px;
-
-  --galaxy-small: 10px;
-  --galaxy-micro: 9px;
-}
-
-
-/* =========================================================
-   GLOBAL FONT
-   ========================================================= */
-
-html,
-body,
-#root {
-  font-family: "Poppins", sans-serif;
-}
-
-
-/* =========================================================
-   DEFAULT BODY SIZE
-   ========================================================= */
-
-body {
-  margin: 0;
-  font-size: var(--galaxy-body);
-}
-
-
-
-/* =========================================================
-   HEADINGS
-   ========================================================= */
-
-h1 {
-  font-size: var(--galaxy-page-title);
-}
-
-h2 {
-  font-size: var(--galaxy-section-title);
-}
-
-h3 {
-  font-size: var(--galaxy-card-title);
-}
-
-
-/* =========================================================
-   NORMAL TEXT
-   ========================================================= */
-
-p {
-  font-size: var(--galaxy-body);
-}
-
-
-/* =========================================================
-   BUTTONS
-   ========================================================= */
-
-button {
-  font-family: "Poppins", sans-serif;
-}
-
-
-/* =========================================================
-   FORM ELEMENTS
-   ========================================================= */
-
-input,
-select,
-textarea {
-  font-family: "Poppins", sans-serif;
-}
-
-
-/* =========================================================
-   ACCESSIBILITY
-   ========================================================= */
-
-button,
-a,
-input,
-select,
-textarea {
+html, body, #root {
+  font-family: Poppins, ui-sans-serif, system-ui, sans-serif;
+  background: #f5f9fd;
+  color: #0d2137;
   -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+p { margin: 0; }
+
+button, input, textarea, select {
+  font-family: Poppins, ui-sans-serif, system-ui, sans-serif;
 }

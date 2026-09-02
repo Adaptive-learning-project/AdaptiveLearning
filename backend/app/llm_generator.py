@@ -1,492 +1,265 @@
 """
-LLM content generator — engineering-level content for each content type.
-
-Each content type is a separate Groq API call so failures are isolated.
-Model  : llama-3.3-70b-versatile  (set in .env)
-Target : 2nd/3rd-year engineering students (computer networks, OS, etc.)
-
-Content types produced:
-  main_explanation   – full technical explanation shown on first attempt
-  simple_explanation – intuition-building re-explanation shown after 2nd wrong
-  example            – concrete engineering analogy shown after 3rd wrong
-  prerequisite       – prerequisite concept shown after 4th wrong
-  hint               – nudge shown after 1st wrong (auto-revealed)
-  question           – standard 4-option MCQ (application/analysis level)
-  easy_question      – simpler 4-option MCQ (conceptual recall)
-  hard_question      – challenging MCQ shown at high mastery (multi-step reasoning)
+llm_generator.py — Pedagogical C++ generator with tagged difficulty levels and question pools.
 """
 
 import json
 import os
 import random
-
 from dotenv import load_dotenv
 from groq import Groq
 
 load_dotenv()
 
-# ── Environment ────────────────────────────────────────────────────────────────
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL:   str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 client = Groq(api_key=GROQ_API_KEY)
 
-# ── Per-type temperature ───────────────────────────────────────────────────────
-# Explanations: low temp → accurate, consistent
-# Questions:    higher temp → varied distractors across regenerations
-# Hints:        mid-range → helpful but not repetitive
-TEMPERATURE_MAP: dict[str, float] = {
-    "main_explanation":   0.25,
-    "simple_explanation": 0.30,
-    "example":            0.40,
-    "prerequisite":       0.20,
-    "hint":               0.40,
-    "question":           0.70,
-    "easy_question":      0.65,
-    "hard_question":      0.70,
-}
+SYSTEM_PROMPT = """\
+You are an expert C++ Computer Science educator.
+Generate high-quality adaptive learning units with structured difficulty metadata.
+Rules:
+- Explanations must be complete, instructive, and free of meta template headings.
+- "diagnostic_question" must be labeled difficulty "easy".
+- "easy_questions" must all be labeled difficulty "easy".
+- "standard_questions" MUST be ordered with strictly increasing difficulty:
+    * Index 0: "easy-medium" (direct code reading/output check)
+    * Index 1: "medium" (logic flow or return resolution)
+    * Index 2: "medium-hard" (subtle edge condition or overload disambiguation)
+- "hard_question" must be labeled difficulty "hard".
+- Return ONLY valid JSON matching the schema.
+"""
 
+def generate_all(topic: str, subtopic: str, reference_text: str = "", all_subtopics: list[str] | None = None) -> dict:
+    prior = [s for s in (all_subtopics or []) if s != subtopic]
+    prior_str = ", ".join(prior[:2]) if prior else f"basics of {topic}"
 
+    user_prompt = f"""Generate an adaptive C++ learning package for "{subtopic}" (Course/Topic: "{topic}").
+Prior context: {prior_str}.
+Reference material: {reference_text.strip() or "Standard Modern C++ (C++17/20)"}.
 
-# ── Core caller ────────────────────────────────────────────────────────────────
+JSON Schema:
+{{
+  "overview": {{
+    "what_we_know": "Recall {prior_str}.",
+    "what_we_study": "1 sentence defining {subtopic}.",
+    "expected_outcome": "1 sentence on practical capability mastered."
+  }},
+  "main_explanation": {{
+    "text": "4 clean, informative sentences explaining {subtopic}, syntax rules, compiler checks, and memory behaviors without template labels.",
+    "code_snippet": "// 5-8 lines of clean, compilable standard C++ code\\n",
+    "takeaway": "1-line golden rule."
+  }},
+  "simple_explanation": {{
+    "text": "2-sentence real-world analogy."
+  }},
+  "example": {{
+    "text": "2-sentence software engineering application."
+  }},
+  "prerequisite": {{
+    "text": "Sentence 1: Prerequisite concept. Sentence 2: Why {subtopic} fails without it."
+  }},
+  "hint": {{
+    "text": "Targeted diagnostic clue reinforcing the rule without stating the option index."
+  }},
+  "diagnostic_question": {{
+    "text": "Readiness diagnostic question for {subtopic}:",
+    "difficulty": "easy",
+    "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
+    "correct": 0,
+    "explanation": "Why this tests prerequisite readiness."
+  }},
+  "easy_questions": [
+    {{
+      "text": "Syntax/rule question 1:",
+      "difficulty": "easy",
+      "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correct": 0,
+      "explanation": "Rule rationale."
+    }},
+    {{
+      "text": "Syntax/rule question 2:",
+      "difficulty": "easy",
+      "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correct": 0,
+      "explanation": "Rule rationale."
+    }},
+    {{
+      "text": "Syntax/rule question 3:",
+      "difficulty": "easy",
+      "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correct": 0,
+      "explanation": "Rule rationale."
+    }}
+  ],
+  "standard_questions": [
+    {{
+      "text": "Direct output tracing of the code snippet:",
+      "difficulty": "easy-medium",
+      "options": ["Correct output", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correct": 0,
+      "explanation": "Step-by-step execution."
+    }},
+    {{
+      "text": "Behavioral prediction when inputs or types are altered:",
+      "difficulty": "medium",
+      "options": ["Correct outcome", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correct": 0,
+      "explanation": "Resolution mechanics."
+    }},
+    {{
+      "text": "Deep resolution question testing parameter binding or overload rules:",
+      "difficulty": "medium-hard",
+      "options": ["Correct outcome", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correct": 0,
+      "explanation": "Detailed standard breakdown."
+    }}
+  ],
+  "hard_question": {{
+    "text": "Code modification introducing an edge-case bug or compiler error:",
+    "difficulty": "hard",
+    "options": ["Accurate diagnosis", "Distractor 1", "Distractor 2", "Distractor 3"],
+    "correct": 0,
+    "explanation": "In-depth standard C++ explanation."
+  }}
+}}"""
 
-def _call(
-    content_type: str,
-    user_prompt: str,
-    reference_text: str = "",
-) -> dict:
-    """
-    Call Groq with the correct temperature for this content type.
-
-    If the teacher supplied reference_text (pasted lecture notes / textbook
-    excerpt), it is injected into the system prompt so the model stays
-    grounded in the actual course material rather than free-forming content.
-
-    Returns a parsed dict.  Raises ValueError on JSON parse failure.
-    """
-    temperature = TEMPERATURE_MAP.get(content_type, 0.40)
-
-    # Build system prompt — inject reference material when available
-    system_parts = [
-        "You are an expert university lecturer generating content for "
-        "2nd and 3rd-year engineering students studying computer networks "
-        "(Kurose & Ross level) or related engineering subjects.",
-        "",
-        "Requirements:",
-        "- Use precise technical terminology.",
-        "- Include specific numerical parameters, protocol names, or "
-        "  layer references where relevant.",
-        "- Do NOT over-simplify. Engineering students can handle depth.",
-        "- Return ONLY valid JSON. No markdown fences, no commentary "
-        "  outside the JSON object.",
-    ]
-
-    if reference_text and reference_text.strip():
-        system_parts += [
-            "",
-            "REFERENCE MATERIAL (treat as ground truth — all generated "
-            "content must be consistent with this):",
-            reference_text.strip(),
-        ]
-
-    system_prompt = "\n".join(system_parts)
-
-    resp = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
-        ],
-        temperature=temperature,
-        response_format={"type": "json_object"},
-        max_tokens=900,
-    )
-
-    raw = resp.choices[0].message.content.strip()
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"JSON parse failed for {content_type}: {exc}\nRaw: {raw[:300]}") from exc
+        resp = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.25,
+            response_format={"type": "json_object"},
+            max_tokens=3200,
+        )
+        data = json.loads(resp.choices[0].message.content.strip())
 
+        # Shuffle options while preserving structure and difficulty tags
+        for k in ["diagnostic_question", "hard_question"]:
+            if k in data and isinstance(data[k], dict):
+                data[k] = _shuffle_options(data[k])
 
+        for pool in ["easy_questions", "standard_questions"]:
+            if pool in data and isinstance(data[pool], list):
+                data[pool] = [_shuffle_options(q) for q in data[pool] if isinstance(q, dict)]
 
-# ── Explanation generators ─────────────────────────────────────────────────────
+        return data
+    except Exception as exc:
+        print(f"[Generator] Call failed: {exc} — invoking fallback.")
+        return generate_fallback(topic, subtopic)
 
-def _gen_main_explanation(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Engineering-depth explanation shown on the student's first visit.
-
-    Includes: formal definition, operating principle, key parameters/numbers,
-    comparison to at least one alternative, and a brief worked example.
-    """
-    prompt = f"""Generate a technical explanation of "{subtopic}" (part of the topic: {topic}).
-
-Target audience: 2nd/3rd-year engineering students who already know basic networking.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<Explanation — minimum 5 sentences. Must include: (1) formal definition, (2) how it works mechanically/operationally, (3) at least one specific numerical parameter or protocol name, (4) comparison to one alternative approach, (5) one practical consequence or real-world example. Use precise technical language.>",
-  "emoji": "<one relevant technical emoji>"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    return _call("main_explanation", prompt, reference_text)
-
-
-def _gen_simple_explanation(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Intuition-rebuilding explanation shown after a student answers wrong twice.
-
-    Simpler than main_explanation but still technically grounded — uses a
-    systems-thinking analogy rather than dumbing down the concept.
-    """
-    prompt = f"""A student got a question about "{subtopic}" wrong twice. Give them a fresh angle.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<One clear sentence that re-explains {subtopic} using a systems-thinking analogy or a contrast with something familiar to an engineering student (e.g., compare to a known protocol, circuit, or algorithm). Keep it to 1-2 sentences — precise and memorable.>",
-  "emoji": "<one relevant emoji>"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    return _call("simple_explanation", prompt, reference_text)
-
-
-
-def _gen_example(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Concrete engineering analogy shown after 3rd wrong answer.
-
-    Must use a real technical system or measurable scenario — not a
-    generic everyday object metaphor.
-    """
-    prompt = f"""A student still doesn't understand "{subtopic}" after two attempts.
-Give them a concrete engineering analogy or scenario that makes the concept click.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<One or two sentences. Start with 'Think of it like ' or 'Consider a ' and use a real engineering scenario — e.g. a specific protocol behaviour, a circuit analogy, a queue/buffer situation, or a measurable system state. Include at least one number or technical term to keep it precise.>",
-  "emoji": "<one relevant emoji>"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    return _call("example", prompt, reference_text)
-
-
-def _gen_prerequisite(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Prerequisite concept card shown after 4th wrong answer.
-
-    Names the exact foundational concept the student is missing, defines it
-    in one sentence, and explains why it is needed to understand the subtopic.
-    """
-    prompt = f"""A student has answered questions about "{subtopic}" wrong four times in a row.
-Identify the single most likely prerequisite concept they are missing.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<Two sentences: (1) Name the prerequisite concept explicitly and give its one-sentence definition. (2) Explain in one sentence how that concept underpins {subtopic}. Be specific — name actual protocol layers, data structures, or algorithms if relevant.>",
-  "emoji": "📌"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    return _call("prerequisite", prompt, reference_text)
-
-
-def _gen_hint(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Targeted hint shown after the 1st wrong answer (auto-revealed).
-
-    Must reference the specific mechanism or property that separates the
-    correct answer from the distractors — without revealing the answer itself.
-    """
-    prompt = f"""Write a hint for an engineering student who just got a question about "{subtopic}" wrong.
-
-Rules:
-- Do NOT state or imply the correct answer directly.
-- Reference one specific technical property, trade-off, or mechanism of {subtopic} that points toward the answer.
-- One sentence only.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<One sentence hint that nudges toward the answer by mentioning a key technical property or constraint of {subtopic}.>",
-  "emoji": "💡"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    return _call("hint", prompt, reference_text)
-
-
-
-# ── Question generators ────────────────────────────────────────────────────────
-
-def _gen_question(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Standard 4-option MCQ — application or analysis level.
-
-    Rules enforced in prompt:
-    - All 4 options are the same category of thing (all protocols, all devices, etc.)
-    - At least one distractor is a common misconception
-    - Question tests application/reasoning, NOT pure recall of a definition
-    - Distractors are technically plausible, not obviously wrong
-    """
-    prompt = f"""Write a multiple-choice question about "{subtopic}" (part of {topic}).
-
-Difficulty: Application / Analysis level — the question must require reasoning, not just
-recall of a definition. An engineering student who memorised the definition but doesn't
-truly understand the concept should be likely to get this wrong.
-
-Rules:
-1. All 4 options must be the same category (e.g. all data rates, all protocol names, all layer names).
-2. At least one wrong option must be a common student misconception about {subtopic}.
-3. Do NOT repeat the correct answer text verbatim in the question.
-4. Each option: 4–10 words.
-5. "correct" is the index (0–3) of the correct option in the options array.
-6. Shuffle your options so the correct answer is not always index 0.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<The question — specific, scenario-based or consequence-based>",
-  "options": ["<option A>", "<option B>", "<option C>", "<option D>"],
-  "correct": <integer 0-3>,
-  "explanation": "<2–3 sentences: why the correct answer is right AND why the most tempting wrong option is wrong. Name the specific technical mechanism.>"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    result = _call("question", prompt, reference_text)
-    result = _shuffle_options(result)
-    return result
-
-
-def _gen_easy_question(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Easier 4-option MCQ shown after the student gets the standard question wrong.
-
-    Tests the single most important conceptual property of the subtopic.
-    Still uses plausible distractors — not trivial yes/no.
-    """
-    prompt = f"""Write an easier multiple-choice question about "{subtopic}" (part of {topic}).
-
-This is shown to a struggling student — it should test ONE core conceptual property,
-not require multi-step reasoning. But it must still be meaningful: a student who has
-NOT studied the topic should not be able to guess by elimination.
-
-Rules:
-1. All 4 options are the same category of thing.
-2. No obviously absurd distractors (e.g., "Controls screen display" is banned).
-3. Each option: 4–10 words.
-4. "correct" is the index (0–3) of the correct option.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<The question — direct and unambiguous>",
-  "options": ["<option A>", "<option B>", "<option C>", "<option D>"],
-  "correct": <integer 0-3>,
-  "explanation": "<1–2 sentences explaining the correct answer and its key property.>"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    result = _call("easy_question", prompt, reference_text)
-    result = _shuffle_options(result)
-    return result
-
-
-def _gen_hard_question(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Hard MCQ shown to high-mastery students (mastery_score >= 70).
-
-    Requires multi-step reasoning, quantitative thinking, or comparison
-    across two concepts. Distractors encode common analysis errors.
-    """
-    prompt = f"""Write a challenging multiple-choice question about "{subtopic}" (part of {topic}).
-
-This is shown to students who already understand the basics. It must require
-multi-step reasoning, quantitative comparison, or analysis of a scenario with
-a non-obvious answer. A student who only memorised definitions will likely get it wrong.
-
-Rules:
-1. Frame the question as a scenario or a "what happens when..." / "why does..." question.
-2. All 4 options are the same category.
-3. Each distractor encodes a specific reasoning error (e.g. confusing two related concepts,
-   ignoring a constraint, applying the wrong formula).
-4. Include at least one specific number, protocol name, or layer reference in the question.
-5. "correct" is the index (0–3) of the correct option.
-
-Return a JSON object with EXACTLY these fields:
-{{
-  "text": "<Challenging scenario-based question with technical specifics>",
-  "options": ["<option A>", "<option B>", "<option C>", "<option D>"],
-  "correct": <integer 0-3>,
-  "explanation": "<3–4 sentences: step-by-step reasoning to the correct answer, and identify the specific error each wrong option represents.>"
-}}
-
-Topic: {topic}
-Subtopic: {subtopic}"""
-    result = _call("hard_question", prompt, reference_text)
-    result = _shuffle_options(result)
-    return result
-
-
-def _shuffle_options(result: dict) -> dict:
-    """Shuffle MCQ options so correct answer isn't always index 0."""
-    if "options" in result and "correct" in result:
+def _shuffle_options(q: dict) -> dict:
+    if "options" in q and "correct" in q:
         try:
-            correct_text = result["options"][int(result["correct"])]
-            random.shuffle(result["options"])
-            result["correct"] = result["options"].index(correct_text)
-        except (IndexError, ValueError):
-            pass  # leave as-is if something is malformed
-    return result
-
-
-
-# ── Public API ─────────────────────────────────────────────────────────────────
-
-def generate_all(topic: str, subtopic: str, reference_text: str = "") -> dict:
-    """
-    Generate all 8 content types for a subtopic.
-
-    Each type is a separate Groq call so a single failure doesn't kill the
-    whole batch — individual failures fall back to _fallback_piece().
-
-    Args:
-        topic:          The parent topic / unit name (e.g. "Computer Networks")
-        subtopic:       The specific subtopic (e.g. "Packet Switching")
-        reference_text: Optional teacher-pasted notes/textbook text.
-                        Passed to every _call() for grounding.
-
-    Returns:
-        dict keyed by content type, each value is the parsed JSON dict.
-    """
-    calls = [
-        ("main_explanation",   lambda: _gen_main_explanation(topic, subtopic, reference_text)),
-        ("simple_explanation", lambda: _gen_simple_explanation(topic, subtopic, reference_text)),
-        ("example",            lambda: _gen_example(topic, subtopic, reference_text)),
-        ("prerequisite",       lambda: _gen_prerequisite(topic, subtopic, reference_text)),
-        ("hint",               lambda: _gen_hint(topic, subtopic, reference_text)),
-        ("question",           lambda: _gen_question(topic, subtopic, reference_text)),
-        ("easy_question",      lambda: _gen_easy_question(topic, subtopic, reference_text)),
-        ("hard_question",      lambda: _gen_hard_question(topic, subtopic, reference_text)),
-    ]
-
-    results = {}
-    for key, fn in calls:
-        try:
-            results[key] = fn()
-            print(f"  [LLM] ✓ {key}")
-        except Exception as exc:
-            print(f"  [LLM] ✗ {key} failed: {exc} — using fallback")
-            results[key] = _fallback_piece(key, topic, subtopic)
-
-    return results
-
+            correct_val = q["options"][int(q["correct"])]
+            random.shuffle(q["options"])
+            q["correct"] = q["options"].index(correct_val)
+        except Exception:
+            pass
+    return q
 
 def generate_fallback(topic: str, subtopic: str) -> dict:
-    """Full fallback when Groq is completely unavailable."""
-    return {key: _fallback_piece(key, topic, subtopic) for key in [
-        "main_explanation", "simple_explanation", "example",
-        "prerequisite", "hint", "question", "easy_question", "hard_question",
-    ]}
-
-
-# ── Per-piece fallback data ────────────────────────────────────────────────────
-# These are shown when an individual LLM call fails.
-# They are intentionally minimal but technically correct placeholders —
-# far better than crashing the student session.
-
-def _fallback_piece(key: str, topic: str, subtopic: str) -> dict:
-    _fb: dict[str, dict] = {
+    return {
+        "overview": {
+            "what_we_know": f"You understand fundamental principles in {topic}.",
+            "what_we_study": f"We explore {subtopic} and how standard C++ handles execution.",
+            "expected_outcome": f"Implement and debug {subtopic} confidently."
+        },
         "main_explanation": {
             "text": (
-                f"{subtopic} is a core mechanism in {topic}. "
-                f"It defines how the system handles a specific aspect of data flow or resource management. "
-                f"Understanding {subtopic} requires knowing how it interacts with adjacent layers or components. "
-                f"It is typically characterised by specific performance parameters such as throughput, latency, or efficiency. "
-                f"In practice, {subtopic} directly affects end-to-end system behaviour."
+                f"{subtopic} provides essential modularity and interface contracts in modern C++.\n"
+                "The compiler verifies all calls and types at compile-time to maintain strict type safety.\n"
+                "Methods and operators must adhere strictly to declaration signatures and scope limits.\n"
+                "Understanding these mechanics prevents costly runtime errors and undefined behavior."
             ),
-            "emoji": "📚",
+            "code_snippet": (
+                "#include <iostream>\n\n"
+                "class Demo {\n"
+                "public:\n"
+                "    void execute(int x) { std::cout << x * 2; }\n"
+                "    void execute(double x) { std::cout << x + 1.5; }\n"
+                "};\n\n"
+                "int main() {\n"
+                "    Demo d;\n"
+                "    d.execute(5);\n"
+                "    return 0;\n"
+                "}"
+            ),
+            "takeaway": f"Properly declare and match parameter signatures for {subtopic}."
         },
         "simple_explanation": {
-            "text": (
-                f"{subtopic} controls how {topic} manages a particular resource or data path — "
-                f"think of it as the policy that decides what happens at a specific decision point in the system."
-            ),
-            "emoji": "💡",
+            "text": f"Think of {subtopic} like a multi-tool: the core handle is constant, but the specific tool engaged depends on the task at hand."
         },
         "example": {
-            "text": (
-                f"Think of it like a controlled-access highway: {subtopic} sets the rules "
-                f"for how data enters, moves through, and exits the {topic} system, "
-                f"ensuring capacity is not exceeded and order is maintained."
-            ),
-            "emoji": "🛣️",
+            "text": "Game and physics engines rely on this to route input actions and coordinate transformations seamlessly."
         },
         "prerequisite": {
-            "text": (
-                f"Before studying {subtopic}, you need a solid understanding of how {topic} "
-                f"is structured at a high level — specifically how data units are addressed and "
-                f"routed between nodes. That foundation is required to see why {subtopic} exists."
-            ),
-            "emoji": "📌",
+            "text": f"Familiarity with foundational C++ data types, functions, and scoping rules is required for {subtopic}."
         },
         "hint": {
-            "text": (
-                f"Focus on what {subtopic} is responsible for managing or controlling "
-                f"within {topic}, and consider what would break if it were removed."
-            ),
-            "emoji": "💡",
+            "text": "Check parameter count and exact type signatures to predict compiler resolution."
         },
-        "question": {
-            "text": f"Which of the following best describes the primary function of {subtopic} in {topic}?",
-            "options": [
-                f"Manages the specific resource or flow defined by {subtopic}",
-                f"Controls physical layer signal encoding",
-                f"Assigns IP addresses to end hosts",
-                f"Establishes transport-layer connections",
-            ],
+        "diagnostic_question": {
+            "text": f"What is a primary compile-time check enforced for {subtopic}?",
+            "difficulty": "easy",
+            "options": ["Signature and type matching", "Automatic variable allocation", "Dynamic garbage cleanup", "Heap fragmentation checks"],
             "correct": 0,
-            "explanation": (
-                f"{subtopic} is responsible for managing its designated resource or "
-                f"flow within {topic}. The other options describe unrelated networking functions."
-            ),
+            "explanation": "C++ checks function signatures and types at compile time."
         },
-        "easy_question": {
-            "text": f"What layer or component in {topic} does {subtopic} belong to?",
-            "options": [
-                f"The component that handles {subtopic}'s designated function",
-                "The physical transmission medium",
-                "The application-layer protocol stack",
-                "The end-host operating system scheduler",
-            ],
-            "correct": 0,
-            "explanation": (
-                f"{subtopic} operates within the part of {topic} responsible for its specific function."
-            ),
-        },
+        "easy_questions": [
+            {
+                "text": "Which condition must be met to satisfy C++ signature matching?",
+                "difficulty": "easy",
+                "options": ["Parameter types, count, or order must differ", "Return types alone must differ", "Function names must be distinct", "Variables must be global"],
+                "correct": 0,
+                "explanation": "Signatures depend on parameter types, order, and count."
+            },
+            {
+                "text": "When are standard static overloads resolved?",
+                "difficulty": "easy",
+                "options": ["At compile time", "During runtime dispatch", "After program exit", "Inside the OS loader"],
+                "correct": 0,
+                "explanation": "Static resolution occurs during compilation."
+            },
+            {
+                "text": "Can two identical function signatures differ only by return type?",
+                "difficulty": "easy",
+                "options": ["No, the compiler flags a redefinition error", "Yes, always allowed", "Yes, if marked static", "Yes, in namespaces"],
+                "correct": 0,
+                "explanation": "Return types alone are insufficient to distinguish signatures."
+            }
+        ],
+        "standard_questions": [
+            {
+                "text": "Given the code snippet, what output is printed when d.execute(5) runs?",
+                "difficulty": "easy-medium",
+                "options": ["10", "6.5", "5", "Compilation error"],
+                "correct": 0,
+                "explanation": "The integer 5 calls execute(int), computing 5 * 2 = 10."
+            },
+            {
+                "text": "If d.execute(4.0) is called instead, which overload executes?",
+                "difficulty": "medium",
+                "options": ["execute(double)", "execute(int)", "Both simultaneously", "None; ambiguous call"],
+                "correct": 0,
+                "explanation": "4.0 is a double literal and resolves cleanly to execute(double)."
+            },
+            {
+                "text": "What happens if a call d.execute('a') is made?",
+                "difficulty": "medium-hard",
+                "options": ["Promotes to int and invokes execute(int)", "Causes an ambiguous call compiler error", "Produces a runtime fault", "Fails compilation due to missing char overload"],
+                "correct": 0,
+                "explanation": "Standard integral promotion converts 'a' to int, matching execute(int) cleanly."
+            }
+        ],
         "hard_question": {
-            "text": (
-                f"In a {topic} scenario where {subtopic} is operating under high load, "
-                f"which outcome is most likely and why?"
-            ),
-            "options": [
-                f"Performance degrades according to the limiting constraint of {subtopic}",
-                "Throughput increases due to parallelism",
-                "Latency decreases as buffers empty faster",
-                "The system defaults to a lower-layer fallback mechanism",
-            ],
+            "text": "Suppose execute is modified to take (int, double) and (double, int). What happens upon calling d.execute(5, 5)?",
+            "difficulty": "hard",
+            "options": ["Compilation error: ambiguous call", "Executes (int, double)", "Executes (double, int)", "Implicitly casts to (double, double)"],
             "correct": 0,
-            "explanation": (
-                f"Under high load, {subtopic} hits its design constraint — typically a buffer, "
-                f"bandwidth ceiling, or scheduling limit — causing measurable degradation. "
-                f"The other options mischaracterise how {topic} responds to overload."
-            ),
-        },
+            "explanation": "Both overloads require one exact match and one conversion, producing an ambiguous call error."
+        }
     }
-    return _fb.get(key, {"text": f"Content about {subtopic} in {topic}.", "emoji": "📖"})

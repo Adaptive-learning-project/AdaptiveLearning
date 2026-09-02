@@ -13,11 +13,11 @@ class ApproveContentRequest(BaseModel):
     subtopic_id: str
 
 class SubmitAnswerRequest(BaseModel):
-    student_id: str
+    student_id: str                          # Must be str to support names like "Ananya"
     subtopic_id: str
-    selected_option: int          # 0-3
+    selected_option: int
+    question_type: Optional[str] = "question" # Defaults to "question" if missing
     hint_used: bool = False
-
 class ResolveEscalationRequest(BaseModel):
     escalation_id: str
     teacher_note: Optional[str] = ""

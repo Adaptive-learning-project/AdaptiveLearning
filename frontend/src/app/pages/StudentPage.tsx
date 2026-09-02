@@ -2,15 +2,63 @@ import { useEffect, useRef, useState } from "react";
 import { studentApi } from "../api/adaptiveApi";
 
 const P = "Poppins, sans-serif";
+const BLUE = "#1565c0";
+const BG = "#f5f9fd";
+const WHITE = "#ffffff";
+const BORDER = "#dce8f5";
+const TEXT = "#0d2137";
+const MUTED = "#607d8b";
+const LIGHT_BLUE = "#eaf3ff";
 
-// ── TTS ────────────────────────────────────────────────────────────────────────
+// ── INDIAN ENGLISH NATURAL TTS ────────────────────────────────────────────────
+
+let cachedVoice: SpeechSynthesisVoice | null = null;
+
+function getIndianVoice(): SpeechSynthesisVoice | null {
+  if (!("speechSynthesis" in window)) return null;
+  if (cachedVoice) return cachedVoice;
+
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices || voices.length === 0) return null;
+
+  const preferred = voices.find(v =>
+    v.lang.replace("_", "-").toLowerCase() === "en-in" ||
+    v.name.toLowerCase().includes("india") ||
+    v.name.toLowerCase().includes("neerja") ||
+    v.name.toLowerCase().includes("prabhat")
+  );
+
+  cachedVoice = preferred || voices.find(v => v.lang.startsWith("en")) || null;
+  return cachedVoice;
+}
+
+if ("speechSynthesis" in window) {
+  window.speechSynthesis.onvoiceschanged = () => { getIndianVoice(); };
+}
+
+function cleanSpeech(raw: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, "")
+    .replace(/```[\s\S]*?```/g, ", , Look at the code snippet on screen. , ,")
+    .replace(/`/g, "")
+    .replace(/:\s+/g, ": , ")
+    .replace(/\bC\+\+\b/g, "C plus plus")
+    .replace(/= 0;/g, "equals zero semicolon")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function speak(text: string, onEnd?: () => void) {
   if (!("speechSynthesis" in window)) { onEnd?.(); return; }
   window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate  = 0.82;
-  u.pitch = 1.05;
+  const cl = cleanSpeech(text);
+  if (!cl) { onEnd?.(); return; }
+  const u = new SpeechSynthesisUtterance(cl);
+  const v = getIndianVoice();
+  if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = "en-IN"; }
+  u.rate = 0.86;
+  u.pitch = 1.0;
   if (onEnd) u.onend = onEnd;
   window.speechSynthesis.speak(u);
 }
@@ -19,219 +67,107 @@ function stopSpeech() {
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }
 
-// ── small shared UI ────────────────────────────────────────────────────────────
+// ── DIFFICULTY BADGE ──────────────────────────────────────────────────────────
+
+function DifficultyBadge({ difficulty }: { difficulty?: string }) {
+  const d = (difficulty || "medium").toLowerCase();
+  let bg = "#f1f5f9";
+  let color = "#475569";
+  let border = "#cbd5e1";
+
+  if (d === "easy") {
+    bg = "#f0fdf4"; color = "#16a34a"; border = "#bbf7d0";
+  } else if (d === "easy-medium") {
+    bg = "#f0fdfa"; color = "#0d9488"; border = "#99f6e4";
+  } else if (d === "medium") {
+    bg = "#eff6ff"; color = "#2563eb"; border = "#bfdbfe";
+  } else if (d === "medium-hard") {
+    bg = "#fffbeb"; color = "#d97706"; border = "#fde68a";
+  } else if (d === "hard") {
+    bg = "#fef2f2"; color = "#dc2626"; border = "#fecaca";
+  }
+
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      padding: "3px 10px", borderRadius: 20, fontSize: 11,
+      fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em",
+      background: bg, color: color, border: `1px solid ${border}`
+    }}>
+      ● {d}
+    </span>
+  );
+}
+
+// ── SHARED ATOMS ──────────────────────────────────────────────────────────────
 
 function SpeakBtn({ text, label = "🔊 Listen again" }: { text: string; label?: string }) {
   return (
     <button onClick={() => speak(text)} style={{
-      background: "rgba(34,211,238,.1)", border: "1px solid rgba(34,211,238,.2)",
-      borderRadius: 8, padding: "6px 14px", cursor: "pointer",
-      color: "#67e8f9", fontFamily: P, fontSize: 13, fontWeight: 700,
+      background: LIGHT_BLUE, border: "1px solid #c5ddf8", borderRadius: 8,
+      padding: "6px 14px", cursor: "pointer", color: BLUE, fontFamily: P,
+      fontSize: 13, fontWeight: 700,
     }}>
       {label}
     </button>
   );
 }
 
-function BigBtn({ onClick, children, disabled = false, color = "linear-gradient(135deg,#7c3aed,#4f46e5)" }: {
+function PrimaryBtn({ onClick, children, disabled = false, color }: {
   onClick: () => void; children: React.ReactNode; disabled?: boolean; color?: string;
 }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      width: "100%", padding: "18px 0", borderRadius: 16, border: "none",
-      background: disabled ? "#1e293b" : color,
-      color: "#fff", fontFamily: P, fontWeight: 800, fontSize: 18,
-      cursor: disabled ? "default" : "pointer", marginTop: 16,
-      opacity: disabled ? 0.6 : 1,
+      width: "100%", padding: "16px 0", borderRadius: 14, border: "none",
+      background: disabled ? "#cbd5e1" : (color || BLUE),
+      color: "#fff", fontFamily: P, fontWeight: 700, fontSize: 17,
+      cursor: disabled ? "default" : "pointer", marginTop: 14,
+      boxShadow: disabled ? "none" : "0 6px 18px rgba(21,101,192,0.22)",
+      transition: "all .2s",
     }}>
       {children}
     </button>
   );
 }
 
-// Progress bar + subtopic indicator
-function ProgressHeader({
-  subtopicName, done, total, mastery, consecutive_wrong,
-}: {
-  subtopicName: string; done: number; total: number; mastery: number; consecutive_wrong: number;
-}) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const masteryColor = mastery >= 80 ? "#22c55e" : mastery >= 50 ? "#f59e0b" : "#7c3aed";
-
+function OverviewCard({ overview }: { overview: { what_we_know: string; what_we_study: string; expected_outcome: string } }) {
   return (
-    <div style={{ marginBottom: 24 }}>
-      {/* subtopic progress */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <span style={{ fontFamily: P, fontSize: 13, color: "#64748b", fontWeight: 700 }}>
-          SUBTOPIC {done + 1} of {total}
-        </span>
-        <span style={{ fontFamily: P, fontSize: 13, color: "#64748b" }}>{pct}% done</span>
+    <div style={{ background: WHITE, borderRadius: 16, padding: "20px", marginBottom: 18, border: `1px solid #c5ddf8`, boxShadow: "0 2px 10px rgba(21,101,192,0.06)" }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: BLUE, letterSpacing: "0.10em", textTransform: "uppercase", marginBottom: 14 }}>
+        📍 Lesson Overview
       </div>
-      <div style={{ background: "rgba(255,255,255,.08)", borderRadius: 99, height: 8, overflow: "hidden", marginBottom: 12 }}>
-        <div style={{
-          width: `${pct}%`, height: "100%",
-          background: "linear-gradient(90deg,#7c3aed,#22d3ee)",
-          borderRadius: 99, transition: "width 0.6s ease",
-        }} />
-      </div>
-
-      {/* current subtopic + mastery */}
-      <div style={{
-        background: "#111827", borderRadius: 14, padding: "12px 16px",
-        border: "1px solid rgba(255,255,255,.06)",
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-      }}>
-        <div>
-          <p style={{ fontFamily: P, fontWeight: 800, color: "#f1f5f9", fontSize: 16, margin: 0 }}>
-            {subtopicName}
-          </p>
-          {consecutive_wrong > 0 && (
-            <p style={{ fontFamily: P, fontSize: 12, color: "#f87171", margin: "2px 0 0" }}>
-              {"⚡".repeat(consecutive_wrong)} attempt {consecutive_wrong + 1}
-            </p>
-          )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <span>✅</span>
+          <span style={{ fontSize: 14, color: "#334155" }}><strong>What we know:</strong> {overview.what_we_know}</span>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <p style={{ fontFamily: P, fontWeight: 800, color: masteryColor, fontSize: 18, margin: 0 }}>
-            {mastery}
-          </p>
-          <p style={{ fontFamily: P, fontSize: 11, color: "#475569", margin: 0 }}>MASTERY</p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <span>📖</span>
+          <span style={{ fontSize: 14, color: "#334155" }}><strong>Studying now:</strong> {overview.what_we_study}</span>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <span>🎯</span>
+          <span style={{ fontSize: 14, color: "#334155" }}><strong>Outcome:</strong> {overview.expected_outcome}</span>
         </div>
       </div>
     </div>
   );
 }
 
-// ── LOGIN ──────────────────────────────────────────────────────────────────────
+// ── LEARNING LOOP ─────────────────────────────────────────────────────────────
 
-function LoginScreen({ onLogin }: { onLogin: (name: string) => void }) {
-  const [name, setName] = useState("");
-  useEffect(() => { speak("Welcome! What is your name?"); }, []);
-  return (
-    <div style={{
-      minHeight: "100vh", background: "#070b24",
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
-    }}>
-      <div style={{
-        background: "#111827", borderRadius: 24, padding: 48,
-        maxWidth: 400, width: "100%", textAlign: "center",
-        border: "1px solid rgba(124,58,237,.25)",
-      }}>
-        <div style={{ fontSize: 72 }}>🌟</div>
-        <h1 style={{ fontFamily: P, fontWeight: 900, color: "#f1f5f9", fontSize: 28, margin: "16px 0 8px" }}>
-          Welcome!
-        </h1>
-        <p style={{ fontFamily: P, color: "#64748b", fontSize: 16, margin: "0 0 32px" }}>
-          What is your name?
-        </p>
-        <input
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && name.trim() && onLogin(name.trim())}
-          placeholder="Type your name here"
-          autoFocus
-          style={{
-            width: "100%", padding: "16px", borderRadius: 12, boxSizing: "border-box",
-            background: "rgba(255,255,255,.06)", border: "2px solid rgba(124,58,237,.4)",
-            color: "#fff", fontFamily: P, fontSize: 20, outline: "none", textAlign: "center",
-          }}
-        />
-        <BigBtn onClick={() => name.trim() && onLogin(name.trim())} disabled={!name.trim()}>
-          Let's Learn! 🚀
-        </BigBtn>
-      </div>
-    </div>
-  );
-}
-
-// ── TOPIC SELECT ───────────────────────────────────────────────────────────────
-
-function TopicSelect({ studentId, onSelect }: {
-  studentId: string;
-  onSelect: (unitId: string, topic: string) => void;
-}) {
-  const [topics, setTopics] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    studentApi.getTopics()
-      .then(d => {
-        // Only show topics that have at least one approved subtopic
-        const ready = (d.topics as any[]).filter((t: any) => t.approved_subtopics > 0);
-        setTopics(ready);
-        if (ready.length > 0) speak(`Hi ${studentId}! Choose what you want to learn today.`);
-        else speak("No topics are ready yet. Ask your teacher!");
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div style={{ minHeight: "100vh", background: "#070b24", padding: "40px 24px" }}>
-      <div style={{ maxWidth: 560, margin: "0 auto" }}>
-        <h1 style={{ fontFamily: P, fontWeight: 900, color: "#f1f5f9", fontSize: 28, textAlign: "center" }}>
-          Hi {studentId}! 👋
-        </h1>
-        <p style={{ fontFamily: P, color: "#64748b", textAlign: "center", marginBottom: 32, fontSize: 16 }}>
-          What do you want to learn today?
-        </p>
-
-        {loading ? (
-          <p style={{ fontFamily: P, color: "#64748b", textAlign: "center" }}>Loading…</p>
-        ) : topics.length === 0 ? (
-          <div style={{
-            background: "#111827", borderRadius: 20, padding: 40, textAlign: "center",
-            border: "1px solid rgba(255,255,255,.06)",
-          }}>
-            <div style={{ fontSize: 48 }}>⏳</div>
-            <p style={{ fontFamily: P, color: "#94a3b8", marginTop: 12 }}>
-              Your teacher hasn't published any lessons yet.
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 16 }}>
-            {topics.map((t: any) => (
-              <button key={t.unit_id}
-                onClick={() => { speak(t.topic); onSelect(t.unit_id, t.topic); }}
-                style={{
-                  background: "#111827", border: "2px solid rgba(124,58,237,.2)",
-                  borderRadius: 20, padding: "28px", cursor: "pointer", textAlign: "left",
-                  width: "100%", transition: "all 0.2s",
-                }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(124,58,237,.7)")}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(124,58,237,.2)")}
-              >
-                <div style={{ fontSize: 40, marginBottom: 8 }}>📘</div>
-                <div style={{ fontFamily: P, fontWeight: 800, color: "#f1f5f9", fontSize: 22 }}>
-                  {t.topic}
-                </div>
-                <div style={{ fontFamily: P, color: "#64748b", fontSize: 14, marginTop: 4 }}>
-                  {t.approved_subtopics} lessons ready
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── LEARNING LOOP ──────────────────────────────────────────────────────────────
-
-type Phase = "loading" | "content" | "question" | "feedback" | "escalated" | "completed";
+type Phase = "loading" | "diagnostic" | "overview" | "content" | "question" | "feedback" | "completed";
 
 function LearningLoop({ studentId, unitId, topic, onDone }: {
   studentId: string; unitId: string; topic: string; onDone: () => void;
 }) {
-  const [phase, setPhase]       = useState<Phase>("loading");
+  const [phase, setPhase] = useState<Phase>("loading");
   const [activity, setActivity] = useState<any>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [result, setResult]     = useState<any>(null);
+  const [result, setResult] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [diagnosticDone, setDiagnosticDone] = useState(false);
   const ttsGuard = useRef(false);
-
-  // ── load next activity ─────────────────────────────────────────────────────
 
   async function loadNext() {
     stopSpeech();
@@ -243,447 +179,316 @@ function LearningLoop({ studentId, unitId, topic, onDone }: {
     try {
       const data = await studentApi.getNextActivity(studentId, unitId);
       setActivity(data);
+
       if (data.completed) {
         setPhase("completed");
-        speak(data.message || "You completed all topics! Great job!");
+        speak(data.message || "All concepts mastered!");
         return;
       }
-      setPhase("content");
+
+      // 1. Check for entry diagnostic
+      if (!diagnosticDone && data.diagnostic_question) {
+        setPhase("diagnostic");
+        return;
+      }
+
+      // 2. Route straight to question if content_type is null (re-attempt or challenge)
+      if (data.content_type === null) {
+        setPhase("question");
+      } else if (data.consecutive_wrong === 0 && data.overview && data.std_question_index === 0) {
+        setPhase("overview");
+      } else {
+        setPhase("content");
+      }
     } catch (e: any) {
-      alert("Could not load activity. Is the backend running?\n" + (e?.message || ""));
+      alert("Activity load error: " + (e?.message || ""));
     }
   }
 
   useEffect(() => { loadNext(); }, []);
 
-  // ── auto TTS on phase changes ──────────────────────────────────────────────
-
+  // Voice narration triggers
   useEffect(() => {
     if (!activity || ttsGuard.current) return;
-    if (phase === "content") {
+    if (phase === "overview") {
       ttsGuard.current = true;
-      const msg   = activity.message && activity.message !== "Correct! Moving on 🎉" ? activity.message + ". " : "";
-      const emoji = activity.content?.emoji ? "" : "";
-      const text  = `${msg}${activity.content?.text || ""}`;
-      speak(text);
-    }
-    if (phase === "question") {
+      speak(`Overview for ${activity.subtopic_name}. ${activity.overview?.what_we_study || ""}`);
+    } else if (phase === "content") {
       ttsGuard.current = true;
-      const hintText = activity.show_hint && activity.hint ? " Here is your hint: " + activity.hint : "";
-      speak(activity.question?.text + hintText);
+      speak(activity.content?.text || "");
+    } else if (phase === "question") {
+      ttsGuard.current = true;
+      const hintMsg = (activity.show_hint && activity.hint && activity.consecutive_wrong >= 1)
+        ? " Hint: " + activity.hint
+        : "";
+      speak((activity.question?.text || "") + hintMsg);
     }
   }, [phase, activity]);
 
-  // ── submit answer ──────────────────────────────────────────────────────────
+  async function handleDiagnosticSubmit() {
+    if (selected === null || !activity?.diagnostic_question) return;
+    setSubmitting(true);
+    try {
+      const isCorrect = selected === activity.diagnostic_question.correct;
+      await studentApi.submitDiagnostic({
+        student_id: studentId,
+        unit_id: unitId,
+        answers: [{ subtopic_id: activity.subtopic_id, correct: isCorrect }],
+      });
+      setDiagnosticDone(true);
+      setPhase(activity.overview ? "overview" : "content");
+    } finally {
+      setSubmitting(false);
+      setSelected(null);
+    }
+  }
 
   async function handleSubmit() {
     if (selected === null || !activity) return;
     setSubmitting(true);
     try {
       const res = await studentApi.submitAnswer({
-        student_id:      studentId,
-        subtopic_id:     activity.subtopic_id,
+        student_id: studentId,
+        subtopic_id: activity.subtopic_id,
         selected_option: selected,
-        hint_used:       activity.show_hint,
+        question_type: activity.question_type || "question",
+        hint_used: Boolean(activity.show_hint),
       });
+
       setResult(res);
-      setActivity((prev: any) => ({ ...prev, mastery_score: res.mastery_score, consecutive_wrong: res.consecutive_wrong }));
-      if (res.escalated) {
-        speak("Great effort! Your teacher will help you with this one.");
-        setPhase("escalated");
-      } else {
-        const fb = res.correct
-          ? "Correct! " + (res.explanation || "Well done!")
-          : "Not quite. " + (res.explanation || "Let's try again.");
-        speak(fb);
-        setPhase("feedback");
-      }
-    } catch (e: any) {
-      alert("Could not submit. Is the backend running?");
+      setActivity((prev: any) => ({
+        ...prev,
+        mastery_score: res.mastery_score,
+        consecutive_wrong: res.correct ? 0 : (prev.consecutive_wrong + 1),
+        can_skip: res.can_skip,
+      }));
+
+      speak(res.correct ? "Correct! " + (res.explanation || "") : "Not quite. " + (res.explanation || ""));
+      setPhase("feedback");
+    } catch {
+      alert("Submission error. Ensure backend is running.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  // ── after feedback ─────────────────────────────────────────────────────────
-
-  function handleNext() {
-    if (result?.status === "mastered") {
-      speak("Amazing! You got it. Moving to the next topic!");
-    }
-    loadNext();
+  if (phase === "loading") {
+    return (
+      <Screen topic={topic} onBack={onDone}>
+        <div style={{ textAlign: "center", paddingTop: 80, fontFamily: P, color: MUTED }}>
+          Loading your next activity…
+        </div>
+      </Screen>
+    );
   }
 
-  // ── screens ────────────────────────────────────────────────────────────────
-
-  if (phase === "loading") return (
-    <Screen>
-      <div style={{ textAlign: "center", paddingTop: 80 }}>
-        <div style={{ fontSize: 56 }}>⏳</div>
-        <p style={{ fontFamily: P, color: "#64748b", fontSize: 18, marginTop: 12 }}>Loading…</p>
-      </div>
-    </Screen>
-  );
-
-  if (phase === "completed") return (
-    <Screen>
-      <div style={{ paddingTop: 24 }}>
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 72 }}>🎉</div>
-          <h2 style={{ fontFamily: P, fontWeight: 900, color: "#4ade80", fontSize: 32, margin: "16px 0 4px" }}>
-            Topic Complete!
-          </h2>
-          <p style={{ fontFamily: P, color: "#94a3b8", fontSize: 16, margin: 0 }}>
-            {activity?.message}
-          </p>
-          {activity?.avg_mastery !== undefined && (
-            <div style={{
-              display: "inline-block", marginTop: 16, padding: "8px 24px",
-              background: activity.avg_mastery >= 70
-                ? "rgba(34,197,94,.12)" : "rgba(245,158,11,.12)",
-              border: `1px solid ${activity.avg_mastery >= 70 ? "rgba(34,197,94,.3)" : "rgba(245,158,11,.3)"}`,
-              borderRadius: 99,
-            }}>
-              <span style={{
-                fontFamily: P, fontWeight: 900, fontSize: 22,
-                color: activity.avg_mastery >= 70 ? "#4ade80" : "#fbbf24",
-              }}>
-                {activity.avg_mastery}
-              </span>
-              <span style={{ fontFamily: P, color: "#64748b", fontSize: 14, marginLeft: 6 }}>
-                avg mastery
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Per-subtopic mastery table */}
-        {activity?.subtopics && activity.subtopics.length > 0 && (
-          <div style={{ marginBottom: 28 }}>
-            <p style={{
-              fontFamily: P, fontSize: 12, fontWeight: 700, color: "#475569",
-              letterSpacing: "0.1em", marginBottom: 12, textTransform: "uppercase",
-            }}>
-              Completion Report
-            </p>
-
-            {/* header row */}
-            <div style={{
-              display: "grid", gridTemplateColumns: "1fr 80px 100px",
-              padding: "6px 16px", marginBottom: 4,
-            }}>
-              <span style={{ fontFamily: P, fontSize: 11, color: "#475569", fontWeight: 700, letterSpacing: "0.08em" }}>SUBTOPIC</span>
-              <span style={{ fontFamily: P, fontSize: 11, color: "#475569", fontWeight: 700, letterSpacing: "0.08em", textAlign: "center" }}>SCORE</span>
-              <span style={{ fontFamily: P, fontSize: 11, color: "#475569", fontWeight: 700, letterSpacing: "0.08em", textAlign: "right" }}>STATUS</span>
-            </div>
-
-            {activity.subtopics.map((s: any, i: number) => {
-              const scoreColor = s.mastery_score >= 80 ? "#4ade80" : s.mastery_score >= 50 ? "#f59e0b" : "#f87171";
-              const statusIcon = s.status === "mastered" ? "✅ Mastered"
-                : s.status === "skipped"  ? "⚡ Skipped"
-                : s.status === "escalated" ? "🙋 Escalated"
-                : "⏳ In progress";
-              const statusColor = s.status === "mastered" ? "#4ade80"
-                : s.status === "skipped"  ? "#f59e0b"
-                : s.status === "escalated" ? "#f87171"
-                : "#94a3b8";
-
-              return (
-                <div key={i} style={{
-                  display: "grid", gridTemplateColumns: "1fr 80px 100px",
-                  alignItems: "center", padding: "12px 16px",
-                  background: i % 2 === 0 ? "rgba(255,255,255,.03)" : "transparent",
-                  borderRadius: 10, marginBottom: 4,
-                  border: "1px solid rgba(255,255,255,.04)",
-                }}>
-                  <span style={{
-                    fontFamily: P, fontWeight: 600, color: "#e2e8f0", fontSize: 14,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    paddingRight: 8,
-                  }}>
-                    {i + 1}. {s.subtopic}
-                  </span>
-
-                  {/* score + mini bar */}
-                  <div style={{ textAlign: "center" }}>
-                    <span style={{ fontFamily: P, fontWeight: 900, fontSize: 16, color: scoreColor }}>
-                      {s.mastery_score}
-                    </span>
-                    <span style={{ fontFamily: P, fontSize: 11, color: "#475569" }}>/100</span>
-                    <div style={{
-                      marginTop: 4, height: 4, borderRadius: 99,
-                      background: "rgba(255,255,255,.08)", overflow: "hidden",
-                    }}>
-                      <div style={{
-                        width: `${s.mastery_score}%`, height: "100%",
-                        background: scoreColor, borderRadius: 99,
-                      }} />
-                    </div>
-                  </div>
-
-                  <span style={{
-                    fontFamily: P, fontSize: 12, fontWeight: 700,
-                    color: statusColor, textAlign: "right",
-                  }}>
-                    {statusIcon}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <BigBtn onClick={onDone}>← Back to Topics</BigBtn>
-      </div>
-    </Screen>
-  );
-
-  if (phase === "escalated") return (
-    <Screen>
-      <div style={{ textAlign: "center", paddingTop: 60 }}>
-        <div style={{ fontSize: 72 }}>🙌</div>
-        <h2 style={{ fontFamily: P, fontWeight: 900, color: "#fbbf24", fontSize: 26, margin: "16px 0 8px" }}>
-          Great effort!
-        </h2>
-        <p style={{ fontFamily: P, color: "#94a3b8", fontSize: 16, lineHeight: 1.7 }}>
-          Your teacher has been notified.<br />
-          They will help you understand <strong style={{ color: "#f1f5f9" }}>{activity?.subtopic_name}</strong>.
-        </p>
-        <div style={{
-          marginTop: 24, padding: 20, background: "rgba(245,158,11,.08)",
-          borderRadius: 16, border: "1px solid rgba(245,158,11,.2)",
-        }}>
-          <p style={{ fontFamily: P, color: "#fbbf24", margin: 0, fontSize: 14 }}>
-            📣 Moving on to the next topic for now.
-          </p>
-        </div>
-        <BigBtn onClick={loadNext}>Continue →</BigBtn>
-      </div>
-    </Screen>
-  );
-
-  const content  = activity?.content;
+  const content = activity?.content;
   const question = activity?.question;
-  const mastery  = activity?.mastery_score ?? 0;
-  const cWrong   = activity?.consecutive_wrong ?? 0;
-  const prog     = activity?.progress ?? { done: 0, total: 1 };
+  const mastery = activity?.mastery_score ?? 0;
+  const cWrong = activity?.consecutive_wrong ?? 0;
 
   return (
-    <Screen>
-      <ProgressHeader
-        subtopicName={activity?.subtopic_name || ""}
-        done={prog.done}
-        total={prog.total}
-        mastery={mastery}
-        consecutive_wrong={cWrong}
-      />
+    <Screen topic={topic} onBack={onDone}>
+      {/* Header bar */}
+      <div style={{ background: WHITE, borderRadius: 14, padding: "12px 18px", border: `1px solid ${BORDER}`, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+        <div>
+          <p style={{ fontWeight: 800, color: TEXT, fontSize: 16, margin: 0 }}>{activity?.subtopic_name}</p>
+          {cWrong > 0 && <span style={{ fontSize: 12, color: "#d97706" }}>Attempt {cWrong + 1}</span>}
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <span style={{ fontWeight: 900, color: BLUE, fontSize: 20 }}>{mastery}</span>
+          <span style={{ fontSize: 10, color: MUTED, display: "block" }}>MASTERY</span>
+        </div>
+      </div>
 
-      {/* message banner (re-teach / hint etc.) */}
-      {activity?.message && activity.message !== "Correct! Moving on 🎉" && (
-        <div style={{
-          padding: "10px 16px", borderRadius: 10, marginBottom: 20,
-          background: cWrong === 0 ? "rgba(124,58,237,.1)" : "rgba(245,158,11,.1)",
-          border: `1px solid ${cWrong === 0 ? "rgba(124,58,237,.2)" : "rgba(245,158,11,.2)"}`,
-          fontFamily: P, fontSize: 14,
-          color: cWrong === 0 ? "#c4b5fd" : "#fcd34d",
-        }}>
-          {activity.message}
+      {/* ── 1. DIAGNOSTIC CARD ── */}
+      {phase === "diagnostic" && activity?.diagnostic_question && (
+        <div style={{ background: WHITE, borderRadius: 20, padding: 24, border: `1px solid ${BORDER}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ color: BLUE, fontSize: 11, fontWeight: 800, textTransform: "uppercase" }}>🎯 Diagnostic Check</span>
+            <DifficultyBadge difficulty="easy" />
+          </div>
+          <p style={{ fontFamily: P, fontSize: 17, fontWeight: 700, color: TEXT, marginBottom: 16 }}>
+            {activity.diagnostic_question.text}
+          </p>
+          <div style={{ display: "grid", gap: 10 }}>
+            {activity.diagnostic_question.options.map((opt: string, i: number) => (
+              <button key={i} onClick={() => setSelected(i)} style={{
+                padding: "14px 16px", borderRadius: 12, border: `2px solid ${selected === i ? BLUE : BORDER}`,
+                background: selected === i ? LIGHT_BLUE : WHITE, textAlign: "left", cursor: "pointer", fontFamily: P
+              }}>
+                {opt}
+              </button>
+            ))}
+          </div>
+          <PrimaryBtn onClick={handleDiagnosticSubmit} disabled={selected === null || submitting}>
+            Confirm & Start Lesson →
+          </PrimaryBtn>
         </div>
       )}
 
-      {/* ── CONTENT phase ── */}
-      {phase === "content" && content && (
+      {/* ── 2. SEPARATE OVERVIEW CARD ── */}
+      {phase === "overview" && activity?.overview && (
         <div>
-          <div style={{
-            background: "#111827", borderRadius: 20, padding: "32px 24px",
-            border: "1px solid rgba(255,255,255,.06)", textAlign: "center",
-          }}>
-            <div style={{ fontSize: 64, marginBottom: 16 }}>{content.emoji || "📖"}</div>
-            <p style={{
-              fontFamily: P, fontSize: 20, fontWeight: 600, color: "#f1f5f9",
-              lineHeight: 1.8, margin: "0 0 20px",
-            }}>
-              {content.text}
-            </p>
+          <OverviewCard overview={activity.overview} />
+          <PrimaryBtn onClick={() => setPhase("content")}>
+            Begin Lesson →
+          </PrimaryBtn>
+        </div>
+      )}
+
+      {/* ── 3. LESSON CARD ── */}
+      {phase === "content" && content && (
+        <div style={{ background: WHITE, borderRadius: 20, padding: "26px 22px", border: `1px solid ${BORDER}` }}>
+          <p style={{ fontFamily: P, fontSize: 16, fontWeight: 500, color: TEXT, lineHeight: 1.8, whiteSpace: "pre-line" }}>
+            {content.text}
+          </p>
+
+          {content.code_snippet && (
+            <div style={{ background: "#030712", borderRadius: 12, padding: "14px 18px", margin: "16px 0", overflowX: "auto" }}>
+              <pre style={{ fontFamily: "monospace", fontSize: 14, color: "#38bdf8", margin: 0 }}>
+                {content.code_snippet}
+              </pre>
+            </div>
+          )}
+
+          {content.takeaway && (
+            <div style={{ background: LIGHT_BLUE, borderRadius: 10, padding: "10px 14px", color: BLUE, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+              💡 Takeaway: {content.takeaway}
+            </div>
+          )}
+
+          <div style={{ textAlign: "right" }}>
             <SpeakBtn text={content.text} />
           </div>
-          <BigBtn onClick={() => { ttsGuard.current = false; setPhase("question"); }}>
-            I'm ready — answer the question →
-          </BigBtn>
+
+          <PrimaryBtn onClick={() => { ttsGuard.current = false; setPhase("question"); }}>
+            I'm ready — answer question →
+          </PrimaryBtn>
         </div>
       )}
 
-      {/* ── QUESTION phase ── */}
+      {/* ── 4. QUESTION PHASE ── */}
       {phase === "question" && question && (
         <div>
-          <div style={{
-            background: "#111827", borderRadius: 20, padding: "24px",
-            border: "1px solid rgba(255,255,255,.06)", marginBottom: 16,
-          }}>
-            <p style={{
-              fontFamily: P, fontSize: 19, fontWeight: 700, color: "#f1f5f9",
-              lineHeight: 1.6, margin: "0 0 12px",
-            }}>
+          <div style={{ background: WHITE, borderRadius: 20, padding: 24, border: `1px solid ${BORDER}`, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: MUTED }}>
+                {activity.question_type === "hard_question" ? "🔥 Challenge" : "Question"}
+              </span>
+              <DifficultyBadge difficulty={activity.difficulty || question.difficulty} />
+            </div>
+
+            <p style={{ fontFamily: P, fontSize: 17, fontWeight: 700, color: TEXT, lineHeight: 1.6, margin: "0 0 10px", whiteSpace: "pre-line" }}>
               {question.text}
             </p>
             <SpeakBtn text={question.text} />
 
-            {/* auto-show hint if consecutive_wrong >= 1 */}
-            {activity?.show_hint && activity?.hint && (
-              <div style={{
-                marginTop: 16, padding: "12px 16px", borderRadius: 12,
-                background: "rgba(245,158,11,.08)", border: "1px solid rgba(245,158,11,.2)",
-                fontFamily: P, fontSize: 14, color: "#fcd34d",
-                display: "flex", alignItems: "flex-start", gap: 8,
-              }}>
-                <span>💡</span>
-                <span>{activity.hint}</span>
+            {/* Hint only displayed after a failed attempt */}
+            {activity.show_hint && activity.hint && cWrong >= 1 && (
+              <div style={{ marginTop: 14, padding: "12px 16px", borderRadius: 12, background: "#fffbeb", border: "1px solid #fde68a", color: "#d97706", display: "flex", gap: 8, fontSize: 14 }}>
+                <span>💡</span><span>{activity.hint}</span>
               </div>
             )}
           </div>
 
-          {/* MCQ options */}
           <div style={{ display: "grid", gap: 10, marginBottom: 8 }}>
-            {question.options?.map((opt: string, i: number) => {
-              const chosen = selected === i;
-              return (
-                <button key={i}
-                  onClick={() => { setSelected(i); speak(opt); }}
-                  style={{
-                    padding: "16px 20px", borderRadius: 14,
-                    border: `2px solid ${chosen ? "#7c3aed" : "rgba(255,255,255,.08)"}`,
-                    background: chosen ? "rgba(124,58,237,.15)" : "rgba(255,255,255,.03)",
-                    cursor: "pointer", textAlign: "left", width: "100%",
-                    display: "flex", alignItems: "center", gap: 14,
-                    transition: "all 0.15s",
-                  }}
-                >
-                  <span style={{
-                    width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-                    background: chosen ? "#7c3aed" : "rgba(255,255,255,.08)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontFamily: P, fontWeight: 800, fontSize: 14,
-                    color: chosen ? "#fff" : "#64748b",
-                  }}>
-                    {["A", "B", "C", "D"][i]}
-                  </span>
-                  <span style={{
-                    fontFamily: P, fontSize: 17,
-                    color: chosen ? "#f1f5f9" : "#94a3b8",
-                    fontWeight: chosen ? 700 : 400,
-                  }}>
-                    {opt}
-                  </span>
-                </button>
-              );
-            })}
+            {question.options?.map((opt: string, i: number) => (
+              <button key={i} onClick={() => { setSelected(i); speak(opt); }} style={{
+                padding: "15px 18px", borderRadius: 14, border: `2px solid ${selected === i ? BLUE : BORDER}`,
+                background: selected === i ? LIGHT_BLUE : WHITE, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 12
+              }}>
+                <span style={{ width: 32, height: 32, borderRadius: "50%", background: selected === i ? BLUE : BORDER, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, color: selected === i ? "#fff" : MUTED }}>
+                  {["A", "B", "C", "D"][i]}
+                </span>
+                <span style={{ fontFamily: P, fontSize: 16, color: selected === i ? TEXT : "#475569" }}>{opt}</span>
+              </button>
+            ))}
           </div>
 
-          <BigBtn onClick={handleSubmit} disabled={selected === null || submitting}>
+          <PrimaryBtn onClick={handleSubmit} disabled={selected === null || submitting}>
             {submitting ? "Checking…" : "Submit Answer ✓"}
-          </BigBtn>
+          </PrimaryBtn>
+
+          {/* Skip option available for hard questions or persistent loop */}
+          {(activity.can_skip || activity.question_type === "hard_question") && (
+            <button onClick={loadNext} style={{
+              width: "100%", marginTop: 10, padding: "12px 0", borderRadius: 14,
+              border: `1px solid ${BORDER}`, background: "transparent", color: MUTED,
+              fontFamily: P, fontWeight: 600, fontSize: 14, cursor: "pointer"
+            }}>
+              Next Topic →
+            </button>
+          )}
         </div>
       )}
 
-      {/* ── FEEDBACK phase ── */}
+      {/* ── 5. FEEDBACK PHASE ── */}
       {phase === "feedback" && result && (
-        <div>
-          <div style={{
-            borderRadius: 20, padding: 28, textAlign: "center", marginBottom: 20,
-            background: result.correct ? "rgba(34,197,94,.08)" : "rgba(239,68,68,.08)",
-            border: `2px solid ${result.correct ? "rgba(34,197,94,.25)" : "rgba(239,68,68,.25)"}`,
-          }}>
-            <div style={{ fontSize: 64 }}>{result.correct ? "✅" : "❌"}</div>
-            <h3 style={{
-              fontFamily: P, fontWeight: 900, fontSize: 26, margin: "12px 0 8px",
-              color: result.correct ? "#4ade80" : "#f87171",
-            }}>
-              {result.correct ? "Correct! 🎉" : "Not quite!"}
-            </h3>
-            {result.explanation && (
-              <p style={{ fontFamily: P, color: "#94a3b8", fontSize: 15, lineHeight: 1.7, margin: "0 0 14px" }}>
-                {result.explanation}
-              </p>
-            )}
-            <SpeakBtn text={(result.correct ? "Correct! " : "Not quite. ") + (result.explanation || "")} />
-          </div>
-
-          {/* show correct answer if wrong */}
-          {!result.correct && (
-            <div style={{
-              background: "rgba(34,197,94,.06)", border: "1px solid rgba(34,197,94,.2)",
-              borderRadius: 12, padding: "12px 18px", marginBottom: 16,
-              fontFamily: P, fontSize: 15, color: "#4ade80",
-            }}>
-              ✓ Correct answer: <strong>{activity?.question?.options?.[result.correct_option]}</strong>
-            </div>
+        <div style={{ background: WHITE, borderRadius: 20, padding: 24, border: `1px solid ${BORDER}`, textAlign: "center" }}>
+          <div style={{ fontSize: 56, marginBottom: 8 }}>{result.correct ? "✅" : "❌"}</div>
+          <h3 style={{ fontFamily: P, fontWeight: 900, fontSize: 22, color: result.correct ? "#16a34a" : "#dc2626", margin: "0 0 8px" }}>
+            {result.correct ? "Correct!" : "Not quite!"}
+          </h3>
+          {result.explanation && (
+            <p style={{ fontFamily: P, color: "#334155", fontSize: 14, lineHeight: 1.7, marginBottom: 14 }}>
+              {result.explanation}
+            </p>
           )}
 
-          {/* mastery update */}
-          <div style={{
-            background: "#111827", borderRadius: 14, padding: "14px 18px", marginBottom: 20,
-            border: "1px solid rgba(255,255,255,.06)",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontFamily: P, fontSize: 13, color: "#64748b" }}>
-              <span>Mastery</span>
-              <span style={{ color: result.mastery_delta >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
-                {result.mastery_delta >= 0 ? "+" : ""}{result.mastery_delta} → {result.mastery_score}/100
-              </span>
-            </div>
-            <div style={{ background: "rgba(255,255,255,.08)", borderRadius: 99, height: 8, overflow: "hidden" }}>
-              <div style={{
-                width: `${result.mastery_score}%`, height: "100%",
-                background: result.mastery_score >= 80 ? "#22c55e" : result.mastery_score >= 50 ? "#f59e0b" : "#7c3aed",
-                borderRadius: 99, transition: "width 0.6s ease",
-              }} />
-            </div>
-          </div>
+          <PrimaryBtn onClick={loadNext} color={result.correct ? "#16a34a" : BLUE}>
+            {result.just_mastered ? "Next Concept 🚀" : "Continue →"}
+          </PrimaryBtn>
 
-          {result.status === "mastered" && (
-            <div style={{
-              padding: "12px 16px", borderRadius: 12, marginBottom: 12,
-              background: "rgba(34,197,94,.1)", border: "1px solid rgba(34,197,94,.2)",
-              fontFamily: P, color: "#4ade80", fontWeight: 700, textAlign: "center",
+          {/* Option to skip forward if failed on hard question or with hints */}
+          {(result.can_skip || activity.question_type === "hard_question") && !result.correct && (
+            <button onClick={loadNext} style={{
+              width: "100%", marginTop: 10, padding: "12px 0", borderRadius: 14,
+              border: `1px solid ${BORDER}`, background: "transparent", color: MUTED,
+              fontFamily: P, fontWeight: 600, fontSize: 14, cursor: "pointer"
             }}>
-              🏆 Concept mastered! Moving to next topic.
-            </div>
+              Next Topic →
+            </button>
           )}
+        </div>
+      )}
 
-          <BigBtn
-            onClick={handleNext}
-            color={result.correct ? "linear-gradient(135deg,#059669,#0891b2)" : "linear-gradient(135deg,#7c3aed,#4f46e5)"}
-          >
-            {result.status === "mastered" ? "Next Topic 🚀" : "Try Again →"}
-          </BigBtn>
+      {/* ── 6. COMPLETED PHASE ── */}
+      {phase === "completed" && (
+        <div style={{ background: WHITE, borderRadius: 20, padding: 36, textAlign: "center", border: `1px solid ${BORDER}` }}>
+          <div style={{ fontSize: 60, marginBottom: 12 }}>🎉</div>
+          <h2 style={{ fontFamily: P, fontWeight: 900, color: "#16a34a", fontSize: 26 }}>Unit Mastered!</h2>
+          <p style={{ fontFamily: P, color: MUTED, fontSize: 15 }}>{activity.message}</p>
+          <PrimaryBtn onClick={onDone}>Back to Topics</PrimaryBtn>
         </div>
       )}
     </Screen>
   );
 }
 
-// ── layout ─────────────────────────────────────────────────────────────────────
-
-function Screen({ children }: { children: React.ReactNode }) {
+function Screen({ children, topic, onBack }: { children: React.ReactNode; topic?: string; onBack?: () => void }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#070b24", color: "#fff" }}>
-      <div style={{ maxWidth: 560, margin: "0 auto", padding: "32px 20px" }}>
-        {children}
+    <div style={{ minHeight: "100vh", background: BG }}>
+      <div style={{ background: WHITE, borderBottom: `1px solid ${BORDER}`, padding: "14px 24px", display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontFamily: P, fontWeight: 700, color: TEXT, fontSize: 15 }}>{topic || "Adaptive Learning"}</span>
+        {onBack && (
+          <button onClick={onBack} style={{ marginLeft: "auto", border: `1px solid ${BORDER}`, background: WHITE, borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontFamily: P, fontSize: 13, color: MUTED }}>
+            ← Topics
+          </button>
+        )}
       </div>
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 20px 40px" }}>{children}</div>
     </div>
   );
 }
 
-// ── MAIN ───────────────────────────────────────────────────────────────────────
-
 type SView = "login" | "topics" | "learning";
 
 export default function StudentPage() {
-  const [view,      setView]      = useState<SView>(() =>
-    sessionStorage.getItem("student_id") ? "topics" : "login"
-  );
+  const [view, setView] = useState<SView>(() => sessionStorage.getItem("student_id") ? "topics" : "login");
   const [studentId, setStudentId] = useState(() => sessionStorage.getItem("student_id") || "");
-  const [unitId,    setUnitId]    = useState("");
-  const [topic,     setTopic]     = useState("");
+  const [unitId, setUnitId] = useState("");
+  const [topic, setTopic] = useState("");
 
   function onLogin(name: string) {
     sessionStorage.setItem("student_id", name);
@@ -691,8 +496,67 @@ export default function StudentPage() {
     setView("topics");
   }
 
-  if (view === "login")    return <LoginScreen onLogin={onLogin} />;
-  if (view === "topics")   return <TopicSelect studentId={studentId} onSelect={(uid, t) => { setUnitId(uid); setTopic(t); setView("learning"); }} />;
+  if (view === "login") return <LoginScreen onLogin={onLogin} />;
+  if (view === "topics") return <TopicSelect studentId={studentId} onSelect={(uid, t) => { setUnitId(uid); setTopic(t); setView("learning"); }} />;
   if (view === "learning") return <LearningLoop studentId={studentId} unitId={unitId} topic={topic} onDone={() => setView("topics")} />;
   return null;
+}
+
+function LoginScreen({ onLogin }: { onLogin: (name: string) => void }) {
+  const [name, setName] = useState("");
+  useEffect(() => { speak("Welcome! What is your name?"); }, []);
+  return (
+    <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ background: WHITE, borderRadius: 24, padding: 48, maxWidth: 400, width: "100%", textAlign: "center", border: `1px solid ${BORDER}` }}>
+        <h1 style={{ fontFamily: P, fontWeight: 800, color: TEXT, fontSize: 26, margin: "0 0 8px" }}>Welcome!</h1>
+        <p style={{ fontFamily: P, color: MUTED, fontSize: 15, margin: "0 0 24px" }}>What is your name?</p>
+        <input
+          value={name} onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && name.trim() && onLogin(name.trim())}
+          placeholder="Type your name here" autoFocus
+          style={{ width: "100%", padding: 14, borderRadius: 12, boxSizing: "border-box", background: "#f8fbff", border: `1.5px solid ${BORDER}`, color: TEXT, fontFamily: P, fontSize: 18, textAlign: "center" }}
+        />
+        <PrimaryBtn onClick={() => name.trim() && onLogin(name.trim())} disabled={!name.trim()}>
+          Let's Learn! 🚀
+        </PrimaryBtn>
+      </div>
+    </div>
+  );
+}
+
+function TopicSelect({ studentId, onSelect }: { studentId: string; onSelect: (unitId: string, topic: string) => void }) {
+  const [topics, setTopics] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    studentApi.getTopics()
+      .then(d => {
+        const ready = (d.topics as any[]).filter((t: any) => t.approved_subtopics > 0);
+        setTopics(ready);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div style={{ minHeight: "100vh", background: BG, padding: "40px 24px" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <h1 style={{ fontFamily: P, fontWeight: 800, color: TEXT, fontSize: 26, textAlign: "center", marginBottom: 24 }}>
+          Choose a Topic, {studentId}!
+        </h1>
+        {loading ? <p style={{ textAlign: "center", color: MUTED }}>Loading topics…</p> : (
+          <div style={{ display: "grid", gap: 14 }}>
+            {topics.map((t: any) => (
+              <button key={t.unit_id} onClick={() => onSelect(t.unit_id, t.topic)} style={{
+                background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 18, padding: 20, textAlign: "left", cursor: "pointer"
+              }}>
+                <div style={{ fontFamily: P, fontWeight: 800, color: TEXT, fontSize: 18 }}>{t.topic}</div>
+                <div style={{ fontFamily: P, color: MUTED, fontSize: 13, marginTop: 4 }}>{t.approved_subtopics} lessons available</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

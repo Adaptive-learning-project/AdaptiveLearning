@@ -49,6 +49,33 @@ def _now():
 def _mastery_score_from_p_l(p_l: float) -> int:
     """Convert P(L) to legacy integer mastery score for frontend compatibility."""
     return int(round(p_l * 100))
+def get_node_state(student_id: int, subtopic_id: str) -> NodeState:
+    doc = mastery_state_collection.find_one({"student_id": student_id, "subtopic_id": subtopic_id})
+    if not doc:
+        return NodeState(subtopic_id=subtopic_id, p_l=DEFAULT_P_L0)
+    return NodeState(
+        subtopic_id=subtopic_id,
+        p_l=doc.get("mastery_probability", DEFAULT_P_L0),
+        consecutive_wrong=doc.get("consecutive_wrong", 0),
+        hint_dependent=doc.get("hint_dependent", False),
+        easy_pass_count=doc.get("easy_pass_count", 0),
+        standard_fail_count=doc.get("standard_fail_count", 0),
+        hard_question_attempt=doc.get("hard_question_attempt", 0),
+    )
+
+def save_node_state(student_id: int, state: NodeState):
+    mastery_state_collection.update_one(
+        {"student_id": student_id, "subtopic_id": state.subtopic_id},
+        {"$set": {
+            "mastery_probability": state.p_l,
+            "consecutive_wrong": state.consecutive_wrong,
+            "hint_dependent": state.hint_dependent,
+            "easy_pass_count": state.easy_pass_count,
+            "standard_fail_count": state.standard_fail_count,
+            "hard_question_attempt": state.hard_question_attempt,
+        }},
+        upsert=True
+    )
 
 def _load_dag(unit_id: str) -> CurriculumDAG:
     """
@@ -76,16 +103,11 @@ def _load_dag(unit_id: str) -> CurriculumDAG:
     return dag
 
 def _load_bkt_states(student_id: str, unit_id: str) -> dict:
-    """
-    Load all BKT states for a student in a unit.
-    Returns dict: subtopic_id → NodeState.
-    Missing nodes default to P(L0)=0.10.
-    """
     subs = list(subtopics_col.find({"unit_id": unit_id}))
     states = {}
     for sub in subs:
         sid = str(sub["_id"])
-        doc = bkt_states_col.find_one({"student_id": student_id, "subtopic_id": sid})
+        doc = bkt_states_col.find_one({"student_id": str(student_id), "subtopic_id": sid})
         if doc:
             states[sid] = NodeState(
                 subtopic_id=sid,
@@ -94,29 +116,29 @@ def _load_bkt_states(student_id: str, unit_id: str) -> dict:
                 hint_dependent=doc.get("hint_dependent", False),
                 easy_pass_count=doc.get("easy_pass_count", 0),
                 standard_fail_count=doc.get("standard_fail_count", 0),
+                hard_question_attempt=doc.get("hard_question_attempt", 0),
+                std_question_index=doc.get("std_question_index", 0),
             )
         else:
             states[sid] = NodeState(subtopic_id=sid, p_l=DEFAULT_P_L0)
     return states
 
 def _save_bkt_state(student_id: str, unit_id: str, state: NodeState) -> None:
-    """Persist a single NodeState to bkt_states_col."""
     bkt_states_col.update_one(
-        {"student_id": student_id, "subtopic_id": state.subtopic_id},
+        {"student_id": str(student_id), "subtopic_id": state.subtopic_id},
         {"$set": {
-            "student_id":          student_id,
-            "unit_id":             unit_id,
-            "subtopic_id":         state.subtopic_id,
-            "p_l":                 state.p_l,
-            "p_t":                 DEFAULT_P_T,
-            "p_g":                 DEFAULT_P_G,
-            "p_s":                 DEFAULT_P_S,
-            "consecutive_wrong":   state.consecutive_wrong,
-            "hint_dependent":      state.hint_dependent,
-            "easy_pass_count":     state.easy_pass_count,
-            "standard_fail_count": state.standard_fail_count,
-            "status":              "mastered" if bkt_is_mastered(state.p_l) else "active",
-            "updated_at":          _now(),
+            "student_id":            str(student_id),
+            "unit_id":               unit_id,
+            "subtopic_id":           state.subtopic_id,
+            "p_l":                   state.p_l,
+            "consecutive_wrong":     state.consecutive_wrong,
+            "hint_dependent":        state.hint_dependent,
+            "easy_pass_count":       state.easy_pass_count,
+            "standard_fail_count":   state.standard_fail_count,
+            "hard_question_attempt": state.hard_question_attempt,
+            "std_question_index":    state.std_question_index,
+            "status":                "mastered" if bkt_is_mastered(state.p_l) else "active",
+            "updated_at":            _now(),
         }},
         upsert=True,
     )
@@ -145,36 +167,54 @@ def health():
 @app.post("/api/teacher/units")
 def create_unit(req: CreateUnitRequest):
     unit = {
-        "teacher_id":     req.teacher_id,
-        "topic":          req.topic,
+        "teacher_id": req.teacher_id,
+        "topic": req.topic,
         "reference_text": req.reference_text,
-        "status":         "generating",
-        "created_at":     _now(),
+        "status": "generating",
+        "created_at": _now(),
     }
     unit_id = str(units_col.insert_one(unit).inserted_id)
 
     subtopic_ids = []
+    subtopic_name_map = {}
     for i, name in enumerate(req.subtopics):
         sub = {
-            "unit_id":    unit_id,
-            "topic":      req.topic,
-            "name":       name,
-            "order":      i,
+            "unit_id": unit_id,
+            "topic": req.topic,
+            "name": name,
+            "order": i,
             "content_approved": False,
             "created_at": _now(),
         }
         sub_id = str(subtopics_col.insert_one(sub).inserted_id)
         subtopic_ids.append(sub_id)
+        subtopic_name_map[name.lower()] = sub_id
 
-    # Build a default linear DAG config and persist it
-    # Teachers can override via /api/teacher/units/{unit_id}/dag
+    # Construct Curriculum DAG with prerequisite awareness
     dag = CurriculumDAG()
-    prev_id = None
-    subs_docs = list(subtopics_col.find({"unit_id": unit_id}).sort("order", 1))
-    for sub in subs_docs:
-        sid = str(sub["_id"])
-        dag.add_node(sid, sub["name"], prerequisites=[prev_id] if prev_id else [])
-        prev_id = sid
+    for sid, name in zip(subtopic_ids, req.subtopics):
+        prereqs = []
+        name_lower = name.lower()
+
+        # Link OOP Pillars / Classes to Abstract Classes
+        if "abstract" in name_lower or "pure virtual" in name_lower:
+            for cand, cid in subtopic_name_map.items():
+                if "class" in cand or "inheritance" in cand or "pillar" in cand:
+                    if cid != sid:
+                        prereqs.append(cid)
+
+        # Link Functions / Overloading to Templates
+        elif "template" in name_lower:
+            for cand, cid in subtopic_name_map.items():
+                if "function" in cand or "overload" in cand:
+                    if cid != sid:
+                        prereqs.append(cid)
+
+        # Default fallback: sequential dependency if no semantic link found
+        if not prereqs and subtopic_ids.index(sid) > 0:
+            prereqs.append(subtopic_ids[subtopic_ids.index(sid) - 1])
+
+        dag.add_node(subtopic_id=sid, name=name, prerequisites=prereqs)
 
     dag_config_col.update_one(
         {"unit_id": unit_id},
@@ -183,9 +223,9 @@ def create_unit(req: CreateUnitRequest):
     )
 
     return {
-        "unit_id":      unit_id,
+        "unit_id": unit_id,
         "subtopic_ids": subtopic_ids,
-        "message":      f"Unit created with {len(subtopic_ids)} subtopics.",
+        "message": f"Unit created with {len(subtopic_ids)} subtopics mapped in DAG.",
     }
 
 
@@ -202,41 +242,117 @@ def generate_content(unit_id: str, background_tasks: BackgroundTasks):
 
 
 def _generate_all_content(unit_id: str, topic: str, reference_text: str = ""):
+    import sys
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from app.llm_generator import generate_all, generate_fallback
 
     subs = list(subtopics_col.find({"unit_id": unit_id}))
-    for sub in subs:
-        sub_id = str(sub["_id"])
-        try:
-            generated = generate_all(topic, sub["name"], reference_text)
-        except Exception:
-            traceback.print_exc()
-            generated = generate_fallback(topic, sub["name"])
+    all_subtopic_names = [s["name"] for s in subs]
+    total = len(subs)
 
+    def log(msg: str):
+        print(msg, flush=True)
+        sys.stdout.flush()
+
+    log("\n" + "=" * 55)
+    log(f"[GEN] Starting: {topic}  ({total} subtopics, parallel)")
+    log("=" * 55)
+
+    completed = 0
+    t0 = time.perf_counter()
+
+    def _gen_one(sub):
+        name   = sub["name"]
+        sub_id = str(sub["_id"])
+        tag = "OK"
+
+        # Generate — if generate_all fails internally it already calls fallback,
+        # but we guard again here in case it returns None or raises anyway.
+        try:
+            generated = generate_all(topic, name, reference_text, all_subtopic_names)
+        except Exception as exc:
+            log(f"[GEN] generate_all error for '{name}': {exc}")
+            generated = None
+
+        if not isinstance(generated, dict) or not generated:
+            try:
+                generated = generate_fallback(topic, name)
+                tag = "fallback"
+            except Exception as exc:
+                log(f"[GEN] generate_fallback error for '{name}': {exc}")
+                generated = {}
+                tag = "empty"
+
+        # Store every top-level key as its own content document
         for ctype, cdata in generated.items():
             content_col.update_one(
                 {"subtopic_id": sub_id, "type": ctype},
                 {"$set": {
-                    "subtopic_id":    sub_id,
-                    "unit_id":        unit_id,
-                    "topic":          topic,
-                    "subtopic_name":  sub["name"],
-                    "type":           ctype,
-                    "data":           cdata,
-                    "approved":       False,
-                    "updated_at":     _now(),
+                    "subtopic_id":   sub_id,
+                    "unit_id":       unit_id,
+                    "topic":         topic,
+                    "subtopic_name": name,
+                    "type":          ctype,
+                    "data":          cdata,
+                    "approved":      False,
+                    "updated_at":    _now(),
                 }},
                 upsert=True,
             )
+
+        # Populate legacy single-question aliases so older frontend code still works
+        if "standard_questions" in generated and generated["standard_questions"]:
+            content_col.update_one(
+                {"subtopic_id": sub_id, "type": "question"},
+                {"$set": {
+                    "subtopic_id": sub_id, "unit_id": unit_id, "topic": topic,
+                    "subtopic_name": name, "type": "question",
+                    "data": generated["standard_questions"][0],
+                    "approved": False, "updated_at": _now(),
+                }},
+                upsert=True,
+            )
+        if "easy_questions" in generated and generated["easy_questions"]:
+            content_col.update_one(
+                {"subtopic_id": sub_id, "type": "easy_question"},
+                {"$set": {
+                    "subtopic_id": sub_id, "unit_id": unit_id, "topic": topic,
+                    "subtopic_name": name, "type": "easy_question",
+                    "data": generated["easy_questions"][0],
+                    "approved": False, "updated_at": _now(),
+                }},
+                upsert=True,
+            )
+
         subtopics_col.update_one(
             {"_id": ObjectId(sub_id)},
-            {"$set": {"generation_status": "done"}}
+            {"$set": {"generation_status": "done"}},
         )
+        return name, tag
+
+    with ThreadPoolExecutor(max_workers=min(total, 8)) as executor:
+        futures = {executor.submit(_gen_one, sub): sub for sub in subs}
+        for future in as_completed(futures):
+            completed += 1
+            elapsed = time.perf_counter() - t0
+            try:
+                name, tag = future.result()
+            except Exception as exc:
+                name = futures[future].get("name", "?")
+                tag  = f"ERROR: {exc}"
+            filled = int(20 * completed / total)
+            bar = "#" * filled + "-" * (20 - filled)
+            log(f"[GEN] [{bar}] {completed}/{total}  {elapsed:5.1f}s  {name}  [{tag}]")
 
     units_col.update_one(
         {"_id": ObjectId(unit_id)},
-        {"$set": {"status": "ready"}}
+        {"$set": {"status": "ready"}},
     )
+    elapsed = time.perf_counter() - t0
+    log("=" * 55)
+    log(f"[GEN] Done -- {total} subtopics in {elapsed:.1f}s")
+    log("=" * 55 + "\n")
 
 
 # ── UNIT STATUS & REVIEW ──────────────────────────────────────────────────────
@@ -476,115 +592,98 @@ def get_topics():
 
 @app.get("/api/student/next-activity")
 def next_activity(student_id: str, unit_id: str):
-    """
-    Determine the next learning activity for a student using the BKT + DAG engine.
-
-    Decision order (in adaptive_engine.decide()):
-      1. Escalation check (consecutive_wrong >= 5)
-      2. Mastery check (P(L) >= 0.85) — advance DAG forward
-      3. Prerequisite gap check — backward remediation
-      4. Hybrid layer check — hint_dependent
-      5. P(L) zone routing — challenge / standard / scaffold
-    """
-    # Load all approved subtopics
-    subs = list(subtopics_col.find(
-        {"unit_id": unit_id, "content_approved": True}
-    ).sort("order", 1))
-
+    subs = list(subtopics_col.find({"unit_id": unit_id, "content_approved": True}).sort("order", 1))
     if not subs:
-        raise HTTPException(404, "No approved content yet — teacher needs to approve subtopics.")
+        raise HTTPException(404, "No approved content found.")
 
-    total = len(subs)
-
-    # Load DAG and BKT states
-    dag    = _load_dag(unit_id)
+    dag = _load_dag(unit_id)
     states = _load_bkt_states(student_id, unit_id)
-    mmap   = _mastery_map(states)
-
-    # Load student interest tag
-    profile = student_profiles_col.find_one({"student_id": student_id})
-    interest_tag = profile["interest_tag"] if profile else None
-
-    # Count mastered nodes for progress
+    mmap = _mastery_map(states)
+    total = len(subs)
     done = sum(1 for p_l in mmap.values() if bkt_is_mastered(p_l))
 
-    # Select the best next node using candidate scoring
-    next_node_id = select_next_node(dag, mmap, interest_tag)
-
+    next_node_id = select_next_node(dag, mmap)
     if next_node_id is None:
-        # All nodes mastered — build summary
         return _build_bkt_summary(student_id, unit_id, subs, mmap)
 
-    # Get the NodeState for the selected node
-    current_state = states.get(next_node_id)
-    if current_state is None:
-        current_state = NodeState(subtopic_id=next_node_id, p_l=DEFAULT_P_L0)
+    current_state = states.get(next_node_id, NodeState(subtopic_id=next_node_id, p_l=DEFAULT_P_L0))
 
-    # Run engine decision
     decision = decide(
         current_subtopic_id=next_node_id,
         state=current_state,
         dag=dag,
         mastery_map=mmap,
-        interest_tag=interest_tag,
     )
 
-    # Resolve actual subtopic to serve (may be remediation target)
     serve_id = decision.subtopic_id
     sub = subtopics_col.find_one({"_id": ObjectId(serve_id)})
     if not sub:
-        raise HTTPException(404, f"Subtopic '{serve_id}' not found.")
+        raise HTTPException(404, "Subtopic not found.")
 
-    # Initialise BKT state if this is the student's first visit
-    if bkt_states_col.find_one({"student_id": student_id, "subtopic_id": serve_id}) is None:
-        init_state = NodeState(subtopic_id=serve_id, p_l=DEFAULT_P_L0)
-        _save_bkt_state(student_id, unit_id, init_state)
+    # 1. Fetch Diagnostic piece if available
+    diag_doc = content_col.find_one({"subtopic_id": serve_id, "type": "diagnostic_question", "approved": True})
+    diag_data = diag_doc["data"] if diag_doc else None
 
-    # Fetch content pieces
-    content_type   = decision.content_type
-    question_type  = decision.question_type
+    # 2. Select Question from pool based on decision type and index
+    question_data = None
+    if decision.question_type == "question":
+        pool_doc = content_col.find_one({"subtopic_id": serve_id, "type": "standard_questions", "approved": True})
+        if pool_doc and isinstance(pool_doc.get("data"), list) and len(pool_doc["data"]) > 0:
+            idx = min(decision.std_question_index, len(pool_doc["data"]) - 1)
+            question_data = pool_doc["data"][idx]
+    elif decision.question_type == "easy_question":
+        pool_doc = content_col.find_one({"subtopic_id": serve_id, "type": "easy_questions", "approved": True})
+        if pool_doc and isinstance(pool_doc.get("data"), list) and len(pool_doc["data"]) > 0:
+            idx = min(current_state.consecutive_wrong, len(pool_doc["data"]) - 1)
+            question_data = pool_doc["data"][idx]
 
-    content_piece  = content_col.find_one({"subtopic_id": serve_id, "type": content_type, "approved": True})
-    question_piece = content_col.find_one({"subtopic_id": serve_id, "type": question_type, "approved": True})
-    hint_piece     = content_col.find_one({"subtopic_id": serve_id, "type": "hint", "approved": True})
+    # Fallback to single question docs if pool does not match
+    if not question_data:
+        q_piece = content_col.find_one({"subtopic_id": serve_id, "type": decision.question_type, "approved": True})
+        if not q_piece:
+            q_piece = content_col.find_one({"subtopic_id": serve_id, "type": "question", "approved": True})
+        question_data = q_piece["data"] if q_piece else None
 
-    # Fallbacks for missing content types
-    if not content_piece:
-        content_piece = content_col.find_one({"subtopic_id": serve_id, "type": "main_explanation", "approved": True})
-    if not question_piece:
-        question_piece = content_col.find_one({"subtopic_id": serve_id, "type": "question", "approved": True})
+    # Ensure difficulty is present on the question payload
+    diff_label = "medium"
+    if question_data:
+        diff_label = question_data.get("difficulty") or (
+            "easy" if decision.question_type == "easy_question" else (
+                "hard" if decision.question_type == "hard_question" else "medium"
+            )
+        )
+        question_data["difficulty"] = diff_label
 
-    if not content_piece or not question_piece:
-        raise HTTPException(404, f"Content not found for '{sub['name']}'.")
+    content_piece = None
+    if decision.content_type:
+        c_doc = content_col.find_one({"subtopic_id": serve_id, "type": decision.content_type, "approved": True})
+        content_piece = c_doc["data"] if c_doc else None
 
-    # Serve state values for the served node
-    served_state = states.get(serve_id, NodeState(subtopic_id=serve_id, p_l=DEFAULT_P_L0))
+    hint_piece = content_col.find_one({"subtopic_id": serve_id, "type": "hint", "approved": True})
+    overview_piece = content_col.find_one({"subtopic_id": serve_id, "type": "overview", "approved": True})
 
     return {
-        # ── Existing fields (backward compatible) ─────────────────────────
-        "subtopic_id":       serve_id,
-        "subtopic_name":     sub["name"],
-        "topic":             sub["topic"],
-        "mastery_score":     _mastery_score_from_p_l(served_state.p_l),
-        "consecutive_wrong": served_state.consecutive_wrong,
-        "progress":          {"done": done, "total": total},
-        "action":            decision.action,
-        "message":           decision.message,
-        "show_hint":         decision.show_hint,
-        "content":           content_piece["data"],
-        "content_type":      content_type,
-        "question":          question_piece["data"],
-        "question_type":     question_type,
-        "hint":              hint_piece["data"]["text"] if hint_piece else "",
-
-        # ── New BKT + DAG fields ──────────────────────────────────────────
-        "p_l":               round(served_state.p_l, 4),
-        "zone":              get_zone(served_state.p_l),
-        "support_level":     decision.support_level,
-        "reason":            decision.reason,
-        "hint_dependent":    decision.hint_dependent,
-        "dag_action":        decision.dag_action,
-        "remediation_target": decision.remediation_target,
+        "subtopic_id": serve_id,
+        "subtopic_name": sub["name"],
+        "topic": sub["topic"],
+        "mastery_score": _mastery_score_from_p_l(current_state.p_l),
+        "consecutive_wrong": current_state.consecutive_wrong,
+        "progress": {"done": done, "total": total},
+        "action": decision.action,
+        "message": decision.message,
+        "show_hint": decision.show_hint,
+        "can_skip": decision.can_skip,
+        "content": content_piece,
+        "content_type": decision.content_type,  # null signals to skip explanation card on re-attempt
+        "question": question_data,
+        "question_type": decision.question_type,
+        "difficulty": diff_label,
+        "std_question_index": decision.std_question_index,
+        "hint": hint_piece["data"]["text"] if hint_piece else "",
+        "overview": overview_piece["data"] if overview_piece else None,
+        "diagnostic_question": diag_data,
+        "p_l": round(current_state.p_l, 4),
+        "zone": get_zone(current_state.p_l),
     }
 
 
@@ -621,28 +720,16 @@ def _build_bkt_summary(student_id: str, unit_id: str, subs: list, mmap: dict) ->
 
 @app.post("/api/student/submit-answer")
 def submit_answer(req: SubmitAnswerRequest):
-    """
-    Grade the student's answer, run BKT update, update DAG traversal state.
-
-    Steps:
-      1. Load BKT state for this subtopic
-      2. Find and grade the question
-      3. Run bkt.full_update() to get new P(L)
-      4. Check if P(L) >= 0.85 → mastery, advance DAG
-      5. Check if P(L) < 0.85 and backward remediation needed
-      6. Update NodeState (reset consecutive_wrong on correct/transition)
-      7. Persist BKT state + legacy mastery record + attempt
-      8. Handle escalation at consecutive_wrong >= 5
-    """
+    student_id_str = str(req.student_id)
     sub = subtopics_col.find_one({"_id": ObjectId(req.subtopic_id)})
     if not sub:
         raise HTTPException(404, "Subtopic not found")
 
-    sub_id  = req.subtopic_id
+    sub_id = req.subtopic_id
     unit_id = sub.get("unit_id", "")
 
-    # Load current BKT state
-    bkt_doc = bkt_states_col.find_one({"student_id": req.student_id, "subtopic_id": sub_id})
+    # Load existing state
+    bkt_doc = bkt_states_col.find_one({"student_id": student_id_str, "subtopic_id": sub_id})
     if bkt_doc:
         state = NodeState(
             subtopic_id=sub_id,
@@ -651,148 +738,95 @@ def submit_answer(req: SubmitAnswerRequest):
             hint_dependent=bkt_doc.get("hint_dependent", False),
             easy_pass_count=bkt_doc.get("easy_pass_count", 0),
             standard_fail_count=bkt_doc.get("standard_fail_count", 0),
+            hard_question_attempt=bkt_doc.get("hard_question_attempt", 0),
+            std_question_index=bkt_doc.get("std_question_index", 0),
         )
     else:
         state = NodeState(subtopic_id=sub_id, p_l=DEFAULT_P_L0)
 
     p_l_before = state.p_l
 
-    # Load per-node BKT parameters (use stored values if available for Phase 2 compat)
-    p_g = bkt_doc.get("p_g", DEFAULT_P_G) if bkt_doc else DEFAULT_P_G
-    p_s = bkt_doc.get("p_s", DEFAULT_P_S) if bkt_doc else DEFAULT_P_S
-    p_t = bkt_doc.get("p_t", DEFAULT_P_T) if bkt_doc else DEFAULT_P_T
+    # Locate question by pool index or direct piece to grade correctly
+    q_type = req.question_type or "question"
+    target_q = None
 
-    # Find the question that was shown (infer from current state/engine)
-    # Determine question_type based on P(L) zone (mirrors decide() logic)
-    from app.bkt import get_zone as _zone
-    current_zone = _zone(p_l_before)
-    if state.consecutive_wrong >= 5:
-        q_type = "easy_question"
-    elif current_zone == "challenge":
-        q_type = "hard_question"
-    elif current_zone == "scaffold":
-        # Use scaffold sequence step
-        from app.adaptive_engine import SCAFFOLD_SEQUENCE
-        step   = min(state.consecutive_wrong, max(SCAFFOLD_SEQUENCE.keys()))
-        q_type = SCAFFOLD_SEQUENCE[step]["question_type"]
-    else:
-        q_type = "question"
+    if q_type == "question":
+        p_doc = content_col.find_one({"subtopic_id": sub_id, "type": "standard_questions", "approved": True})
+        if p_doc and isinstance(p_doc.get("data"), list) and len(p_doc["data"]) > state.std_question_index:
+            target_q = p_doc["data"][state.std_question_index]
+    elif q_type == "easy_question":
+        p_doc = content_col.find_one({"subtopic_id": sub_id, "type": "easy_questions", "approved": True})
+        if p_doc and isinstance(p_doc.get("data"), list):
+            idx = min(state.consecutive_wrong, len(p_doc["data"]) - 1)
+            target_q = p_doc["data"][idx]
 
-    question_piece = content_col.find_one({"subtopic_id": sub_id, "type": q_type, "approved": True})
-    if not question_piece:
-        question_piece = content_col.find_one({"subtopic_id": sub_id, "type": "question", "approved": True})
-    if not question_piece:
-        raise HTTPException(404, "Question not found")
+    if not target_q:
+        qp = content_col.find_one({"subtopic_id": sub_id, "type": q_type, "approved": True})
+        if not qp:
+            qp = content_col.find_one({"subtopic_id": sub_id, "type": "question", "approved": True})
+        if not qp:
+            raise HTTPException(404, "Question content not found")
+        target_q = qp["data"]
 
-    q_data  = question_piece["data"]
-    correct = (req.selected_option == q_data["correct"])
+    correct = (req.selected_option == target_q["correct"])
 
-    # Run BKT update
-    new_p_l = full_update(
-        p_l=p_l_before,
-        correct=correct,
-        hint_used=req.hint_used,
-        p_g=p_g,
-        p_s=p_s,
-        p_t=p_t,
-    )
-
-    # Check if mastery crossed threshold → DAG node transition
+    # Update BKT
+    new_p_l = full_update(p_l=p_l_before, correct=correct, hint_used=req.hint_used)
     just_mastered = bkt_is_mastered(new_p_l) and not bkt_is_mastered(p_l_before)
-    transitioning_node = just_mastered  # also True on backward remediation (handled below)
 
-    # Update NodeState (consecutive_wrong reset, hybrid counters)
+    # Post-submission state update
     state = compute_post_submission_state(
         state=state,
         correct=correct,
         question_type_shown=q_type,
         new_p_l=new_p_l,
-        transitioning_node=transitioning_node,
+        transitioning_node=just_mastered,
     )
 
-    # Persist BKT state
-    _save_bkt_state(req.student_id, unit_id, state)
+    _save_bkt_state(student_id_str, unit_id, state)
 
-    # Record attempt
-    legacy_score    = _mastery_score_from_p_l(p_l_before)
-    new_score       = _mastery_score_from_p_l(new_p_l)
+    legacy_score = _mastery_score_from_p_l(p_l_before)
+    new_score = _mastery_score_from_p_l(new_p_l)
 
+    # Insert attempt record
     attempts_col.insert_one({
-        "student_id":      req.student_id,
-        "subtopic_id":     sub_id,
-        "unit_id":         unit_id,
+        "student_id": student_id_str,
+        "subtopic_id": sub_id,
+        "unit_id": unit_id,
         "selected_option": req.selected_option,
-        "correct":         correct,
-        "hint_used":       req.hint_used,
-        "p_l_before":      p_l_before,
-        "p_l_after":       new_p_l,
-        "mastery_before":  legacy_score,
-        "mastery_after":   new_score,
-        "question_type":   q_type,
-        "timestamp":       _now(),
+        "correct": correct,
+        "hint_used": req.hint_used,
+        "question_type": q_type,
+        "std_question_index": state.std_question_index,
+        "difficulty": target_q.get("difficulty", "medium"),
+        "timestamp": _now(),
     })
 
-    # Escalation check
-    escalated  = False
-    new_status = "mastered" if bkt_is_mastered(new_p_l) else "active"
+    dag = _load_dag(unit_id)
+    all_bkt = bkt_states_col.find({"student_id": student_id_str})
+    mastery_map = {doc["subtopic_id"]: doc.get("p_l", 0.0) for doc in all_bkt}
+    mastery_map[sub_id] = new_p_l
 
-    if state.consecutive_wrong >= 5:
-        escalated  = True
-        new_status = "escalated"
-        existing   = escalations_col.find_one({
-            "student_id":  req.student_id,
-            "subtopic_id": sub_id,
-            "resolved":    False,
-        })
-        if not existing:
-            escalations_col.insert_one({
-                "student_id":    req.student_id,
-                "subtopic_id":   sub_id,
-                "unit_id":       unit_id,
-                "subtopic_name": sub["name"],
-                "p_l":           new_p_l,
-                "mastery_score": new_score,
-                "resolved":      False,
-                "created_at":    _now(),
-            })
-
-    # Update legacy mastery record for frontend backward compatibility
-    mastery_col.update_one(
-        {"student_id": req.student_id, "subtopic_id": sub_id},
-        {"$set": {
-            "mastery_score":     new_score,
-            "consecutive_wrong": state.consecutive_wrong,
-            "attempt_number":    (bkt_doc.get("attempt_number", 0) if bkt_doc else 0) + 1,
-            "hint_used_count":   (bkt_doc.get("hint_used_count", 0) if bkt_doc else 0) + (1 if req.hint_used else 0),
-            "status":            new_status,
-            "escalated":         escalated,
-            "last_updated":      _now(),
-        }},
-        upsert=True,
+    decision = decide(
+        current_subtopic_id=sub_id,
+        state=state,
+        dag=dag,
+        mastery_map=mastery_map,
     )
 
     return {
-        "correct":           correct,
-        "correct_option":    q_data["correct"],
-        "explanation":       q_data.get("explanation", ""),
-
-        # BKT state
-        "p_l_before":        round(p_l_before, 4),
-        "p_l_after":         round(new_p_l, 4),
-        "zone_after":        get_zone(new_p_l),
-        "just_mastered":     just_mastered,
-
-        # Legacy score (backward compat)
-        "mastery_score":     new_score,
-        "mastery_delta":     new_score - legacy_score,
-
-        # Engine state
-        "consecutive_wrong": state.consecutive_wrong,
-        "hint_dependent":    state.hint_dependent,
-        "status":            new_status,
-        "escalated":         escalated,
+        "correct": correct,
+        "correct_option": target_q["correct"],
+        "explanation": target_q.get("explanation", ""),
+        "p_l_after": round(new_p_l, 4),
+        "zone_after": get_zone(new_p_l),
+        "mastery_score": new_score,
+        "mastery_delta": new_score - legacy_score,
+        "just_mastered": just_mastered,
+        "std_question_index": state.std_question_index,
+        "difficulty": target_q.get("difficulty", "medium"),
+        "can_skip": decision.can_skip,
     }
-
 
 # ── STUDENT MASTERY SUMMARY ───────────────────────────────────────────────────
 

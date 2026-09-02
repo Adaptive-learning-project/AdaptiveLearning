@@ -1,1306 +1,143 @@
 import { useEffect, useState } from "react";
-import { motion } from "motion/react";
-import { Link } from "react-router";
-
-/* =========================================================
-   CONSTANTS
-========================================================= */
+import { Link, useNavigate } from "react-router";
 
 const P = "Poppins, sans-serif";
 
-/* =========================================================
-   LOADING DOTS
-========================================================= */
-
-function LoadingDots() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-      }}
-    >
-      {[0, 1, 2, 3].map((i) => (
-        <motion.span
-          key={i}
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: "#67E8F9",
-            display: "block",
-            boxShadow:
-              "0 0 10px rgba(103,232,249,.8)",
-          }}
-          animate={{
-            y: [0, -7, 0],
-            opacity: [0.35, 1, 0.35],
-          }}
-          transition={{
-            duration: 1.1,
-            repeat: Infinity,
-            delay: i * 0.16,
-            ease: "easeInOut",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* =========================================================
-   PROGRESS BAR
-========================================================= */
-
-function ProgressBar({
-  value,
-}: {
-  value: number;
-}) {
-  return (
-    <div
-      style={{
-        width: "100%",
-        height: 7,
-        borderRadius: 99,
-        overflow: "hidden",
-        background:
-          "rgba(255,255,255,.08)",
-        border:
-          "1px solid rgba(255,255,255,.08)",
-      }}
-    >
-      <motion.div
-        style={{
-          height: "100%",
-          borderRadius: 99,
-          background:
-            "linear-gradient(90deg,#1565C0,#8B5CF6,#06B6D4)",
-          boxShadow:
-            "0 0 15px rgba(6,182,212,.55)",
-        }}
-        animate={{
-          width: `${value}%`,
-        }}
-        transition={{
-          duration: 0.4,
-          ease: "easeOut",
-        }}
-      />
-    </div>
-  );
-}
-
-/* =========================================================
-   BACKGROUND STARS
-========================================================= */
-
-function GalaxyStars() {
-  const stars = [
-    ["7%", "13%", "✦", 14],
-    ["14%", "72%", "✧", 9],
-    ["23%", "28%", "·", 20],
-    ["31%", "82%", "✦", 11],
-    ["42%", "11%", "✧", 8],
-    ["52%", "76%", "·", 18],
-    ["63%", "20%", "✦", 13],
-    ["71%", "88%", "✧", 8],
-    ["79%", "31%", "·", 17],
-    ["88%", "14%", "✦", 12],
-    ["94%", "66%", "✧", 9],
-    ["97%", "38%", "·", 15],
-  ];
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        pointerEvents: "none",
-        overflow: "hidden",
-      }}
-    >
-      {stars.map(
-        ([left, top, symbol, size], i) => (
-          <motion.span
-            key={i}
-            style={{
-              position: "absolute",
-              left,
-              top,
-              color:
-                i % 3 === 0
-                  ? "#A78BFA"
-                  : i % 3 === 1
-                  ? "#67E8F9"
-                  : "#FFFFFF",
-              fontSize: Number(size),
-              opacity:
-                i % 3 === 0
-                  ? 0.7
-                  : 0.4,
-              textShadow:
-                "0 0 10px currentColor",
-            }}
-            animate={{
-              opacity: [
-                0.15,
-                0.8,
-                0.15,
-              ],
-              scale: [
-                0.8,
-                1.15,
-                0.8,
-              ],
-            }}
-            transition={{
-              duration:
-                2.5 + (i % 4),
-              repeat: Infinity,
-              delay: i * 0.25,
-              ease: "easeInOut",
-            }}
-          >
-            {symbol}
-          </motion.span>
-        )
-      )}
-    </div>
-  );
-}
-
-/* =========================================================
-   GALAXY ORBS
-========================================================= */
-
-function GalaxyOrbs() {
-  return (
-    <>
-      <motion.div
-        style={{
-          position: "absolute",
-          width: 520,
-          height: 520,
-          borderRadius: "50%",
-          background:
-            "radial-gradient(circle,rgba(124,58,237,.18),transparent 68%)",
-          top: -200,
-          right: -120,
-          pointerEvents: "none",
-        }}
-        animate={{
-          scale: [1, 1.08, 1],
-          rotate: [0, 8, 0],
-        }}
-        transition={{
-          duration: 12,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
-
-      <motion.div
-        style={{
-          position: "absolute",
-          width: 460,
-          height: 460,
-          borderRadius: "50%",
-          background:
-            "radial-gradient(circle,rgba(6,182,212,.12),transparent 68%)",
-          bottom: -180,
-          left: -120,
-          pointerEvents: "none",
-        }}
-        animate={{
-          scale: [1, 1.1, 1],
-          rotate: [0, -10, 0],
-        }}
-        transition={{
-          duration: 15,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
-
-      <motion.div
-        style={{
-          position: "absolute",
-          width: 300,
-          height: 300,
-          borderRadius: "50%",
-          background:
-            "radial-gradient(circle,rgba(139,92,246,.10),transparent 70%)",
-          left: "12%",
-          top: "35%",
-          pointerEvents: "none",
-        }}
-        animate={{
-          scale: [1, 1.18, 1],
-        }}
-        transition={{
-          duration: 9,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
-    </>
-  );
-}
-
-/* =========================================================
-   LOGO
-========================================================= */
-
-function GalaxyLogo() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 11,
-      }}
-    >
-      <motion.div
-        style={{
-          width: 48,
-          height: 48,
-          borderRadius: 15,
-          display: "grid",
-          placeItems: "center",
-          background:
-            "linear-gradient(135deg,#7C3AED,#06B6D4)",
-          boxShadow:
-            "0 0 25px rgba(124,58,237,.4)",
-        }}
-        animate={{
-          rotate: [0, 4, -4, 0],
-          scale: [1, 1.03, 1],
-        }}
-        transition={{
-          duration: 4,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 22,
-          }}
-        >
-          🚀
-        </span>
-      </motion.div>
-
-      <div>
-        <div
-          style={{
-            fontFamily: P,
-            fontWeight: 800,
-            fontSize: 17,
-            color: "#FFFFFF",
-            lineHeight: 1.1,
-          }}
-        >
-          LEARNABLE
-        </div>
-
-        <div
-          style={{
-            fontFamily: P,
-            fontSize: 12,
-            color:
-              "rgba(255,255,255,.48)",
-            letterSpacing: 2,
-            marginTop: 3,
-          }}
-        >
-          LEARNING UNIVERSE
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   GALAXY PLANET
-========================================================= */
-
-function GalaxyPlanet() {
-  return (
-    <motion.div
-      style={{
-        position: "relative",
-        width: 170,
-        height: 170,
-        display: "grid",
-        placeItems: "center",
-      }}
-      animate={{
-        y: [0, -10, 0],
-        rotate: [-2, 2, -2],
-      }}
-      transition={{
-        duration: 5,
-        repeat: Infinity,
-        ease: "easeInOut",
-      }}
-    >
-      {/* Orbit */}
-
-      <div
-        style={{
-          position: "absolute",
-          width: 165,
-          height: 55,
-          borderRadius: "50%",
-          border:
-            "2px solid rgba(103,232,249,.45)",
-          transform:
-            "rotate(-18deg)",
-          boxShadow:
-            "0 0 20px rgba(103,232,249,.18)",
-        }}
-      />
-
-      <div
-        style={{
-          position: "absolute",
-          width: 190,
-          height: 70,
-          borderRadius: "50%",
-          border:
-            "1px solid rgba(167,139,250,.25)",
-          transform:
-            "rotate(25deg)",
-        }}
-      />
-
-      {/* Planet */}
-
-      <div
-        style={{
-          width: 105,
-          height: 105,
-          borderRadius: "50%",
-          display: "grid",
-          placeItems: "center",
-          fontSize: 57,
-          background:
-            "radial-gradient(circle at 30% 25%,#C4B5FD,#7C3AED 45%,#312E81 80%)",
-          boxShadow:
-            "0 0 45px rgba(124,58,237,.5)",
-        }}
-      >
-        🪐
-      </div>
-    </motion.div>
-  );
-}
-
-/* =========================================================
-   STAT CHIP
-========================================================= */
-
-function StatChip({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  color: string;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 9,
-        padding:
-          "9px 12px",
-        borderRadius: 13,
-        background:
-          "rgba(255,255,255,.045)",
-        border:
-          "1px solid rgba(255,255,255,.08)",
-        backdropFilter:
-          "blur(10px)",
-      }}
-    >
-      <div
-        style={{
-          width: 30,
-          height: 30,
-          borderRadius: 10,
-          display: "grid",
-          placeItems: "center",
-          background: `${color}18`,
-          color,
-          fontSize: 19,
-        }}
-      >
-        {icon}
-      </div>
-
-      <div>
-        <div
-          style={{
-            fontFamily: P,
-            fontWeight: 800,
-            fontSize: 16,
-            color: "#FFFFFF",
-          }}
-        >
-          {value}
-        </div>
-
-        <div
-          style={{
-            fontFamily: P,
-            fontSize: 12,
-            color:
-              "rgba(255,255,255,.42)",
-          }}
-        >
-          {label}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   SPLASH PAGE
-========================================================= */
+const MESSAGES = [
+  "Initializing platform...",
+  "Loading learning environment...",
+  "Preparing adaptive engine...",
+  "Setting up your workspace...",
+  "Almost ready...",
+];
 
 export default function SplashPage() {
-  const [progress, setProgress] =
-    useState(0);
+  const navigate = useNavigate();
+  const [progress, setProgress] = useState(0);
 
-  const [loadingText, setLoadingText] =
-    useState(
-      "Initializing learning galaxy..."
-    );
-
-  const steps = [
-    "Initializing learning galaxy...",
-    "Loading learning modules...",
-    "Calibrating adaptive engine...",
-    "Preparing your mission control...",
-    "Galaxy ready!",
-  ];
-
+  // Advance progress bar
   useEffect(() => {
-    const interval =
-      window.setInterval(() => {
-        setProgress((p) => {
-          const next = Math.min(
-            p +
-              Math.random() * 16 +
-              5,
-            100
-          );
-
-          const stepIndex =
-            Math.floor(
-              (next / 100) *
-                (steps.length - 1)
-            );
-
-          setLoadingText(
-            steps[
-              Math.min(
-                stepIndex,
-                steps.length - 1
-              )
-            ]
-          );
-
-          if (next >= 100) {
-            window.clearInterval(
-              interval
-            );
-          }
-
-          return next;
-        });
-      }, 480);
-
-    return () =>
-      window.clearInterval(
-        interval
-      );
+    const t = setInterval(() => {
+      setProgress(p => {
+        if (p >= 100) { clearInterval(t); return 100; }
+        return Math.min(p + 4, 100);
+      });
+    }, 140);
+    return () => clearInterval(t);
   }, []);
 
+  // Navigate once complete
+  useEffect(() => {
+    if (progress >= 100) {
+      const t = setTimeout(() => navigate("/login"), 700);
+      return () => clearTimeout(t);
+    }
+  }, [progress, navigate]);
+
+  const msgIdx = Math.min(Math.floor(progress / 20), MESSAGES.length - 1);
+
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        width: "100%",
-        overflow: "hidden",
-        position: "relative",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: P,
+    <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "#f5f9fd", fontFamily: P }}>
 
-        background:
-          "radial-gradient(circle at 75% 5%,rgba(124,58,237,.18),transparent 30%),radial-gradient(circle at 10% 80%,rgba(6,182,212,.10),transparent 30%),#070B24",
+      {/* Background shapes */}
+      <div style={{ position: "absolute", width: 520, height: 520, top: -300, left: -180, borderRadius: "50%", background: "#e3f2fd", pointerEvents: "none" }} />
+      <div style={{ position: "absolute", width: 360, height: 360, top: -220, right: -170, borderRadius: "50%", background: "#eaf4fc", pointerEvents: "none" }} />
 
-        color: "#FFFFFF",
-      }}
-    >
-      <GalaxyStars />
-      <GalaxyOrbs />
+      {/* Dot pattern */}
+      <div style={{ position: "absolute", right: "7%", top: "28%", display: "grid", gridTemplateColumns: "repeat(5,7px)", gap: 13, opacity: 0.45, pointerEvents: "none" }}>
+        {Array.from({ length: 35 }).map((_, i) => (
+          <span key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#64b5f6" }} />
+        ))}
+      </div>
 
-      {/* Grid */}
+      {/* Bottom wave */}
+      <svg style={{ position: "absolute", bottom: 0, left: 0, width: "100%", height: 240, pointerEvents: "none" }} viewBox="0 0 1440 280" preserveAspectRatio="none">
+        <path d="M0 180 C180 90 310 245 510 205 C700 165 760 65 960 125 C1130 177 1220 225 1440 120 L1440 280 L0 280 Z" fill="#e3f2fd" />
+        <path d="M0 225 C200 125 330 280 550 230 C740 188 820 120 1010 160 C1190 198 1270 245 1440 165 L1440 280 L0 280 Z" fill="#bbdefb" opacity="0.75" />
+        <path d="M0 255 C190 170 360 295 570 250 C780 205 850 160 1050 195 C1210 222 1320 270 1440 205 L1440 280 L0 280 Z" fill="#1565c0" opacity="0.88" />
+      </svg>
 
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          pointerEvents: "none",
-          opacity: 0.35,
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px)",
-          backgroundSize:
-            "45px 45px",
-        }}
-      />
+      {/* Header */}
+      <header style={{ position: "relative", zIndex: 20, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "26px clamp(22px,5vw,72px)" }}>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
+          <div style={{ width: 45, height: 45, borderRadius: 12, background: "#1565c0", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 22px rgba(21,101,192,0.20)" }}>
+            <span style={{ color: "#fff", fontWeight: 800, fontSize: 19 }}>G</span>
+          </div>
+          <div>
+            <div style={{ color: "#0d2137", fontSize: 17, fontWeight: 800, lineHeight: 1 }}>GIID Tambaram</div>
+            <div style={{ color: "#607d8b", fontSize: 8, fontWeight: 600, letterSpacing: 1.2, marginTop: 5 }}>ADAPTIVE LEARNING PLATFORM</div>
+          </div>
+        </Link>
+        <Link to="/login" style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 17px", borderRadius: 10, background: "#fff", border: "1px solid #d5e6f5", color: "#1565c0", fontSize: 12, fontWeight: 700, textDecoration: "none", boxShadow: "0 5px 18px rgba(21,101,192,0.06)" }}>
+          Teacher Login <span>→</span>
+        </Link>
+      </header>
 
       {/* Main */}
+      <main style={{ position: "relative", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "calc(100vh - 105px)", padding: "30px 24px 220px" }}>
+        <div style={{ maxWidth: 900, width: "100%", textAlign: "center" }}>
 
-      <motion.div
-        initial={{
-          opacity: 0,
-          y: 25,
-          scale: 0.97,
-        }}
-        animate={{
-          opacity: 1,
-          y: 0,
-          scale: 1,
-        }}
-        transition={{
-          duration: 0.7,
-          ease: [
-            0.22,
-            1,
-            0.36,
-            1,
-          ],
-        }}
-        style={{
-          position: "relative",
-          zIndex: 5,
-          width: 1040,
-          maxWidth: "94vw",
-        }}
-      >
-        {/* =================================================
-            HEADER
-        ================================================= */}
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent:
-              "space-between",
-            marginBottom: 18,
-          }}
-        >
-          <GalaxyLogo />
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            {[
-              "About",
-              "Contact",
-              "Help",
-            ].map((item) => (
-              <button
-                key={item}
-                style={{
-                  padding:
-                    "7px 13px",
-                  borderRadius: 99,
-                  border:
-                    "1px solid rgba(255,255,255,.09)",
-                  background:
-                    "rgba(255,255,255,.035)",
-                  color:
-                    "rgba(255,255,255,.65)",
-                  fontFamily: P,
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                {item}
-              </button>
-            ))}
-
-            <Link
-              to="/student"
-              style={{
-                padding: "8px 15px",
-                borderRadius: 99,
-                background: "linear-gradient(90deg,#059669,#0891b2)",
-                color: "#FFFFFF",
-                fontFamily: P,
-                fontWeight: 800,
-                fontSize: 13,
-                textDecoration: "none",
-                boxShadow: "0 0 20px rgba(6,182,212,.25)",
-              }}
-            >
-              Student →
-            </Link>
-
-            <Link
-              to="/teacher"
-              style={{
-                padding:
-                  "8px 15px",
-                borderRadius: 99,
-                background:
-                  "linear-gradient(90deg,#7C3AED,#06B6D4)",
-                color: "#FFFFFF",
-                fontFamily: P,
-                fontWeight: 800,
-                fontSize: 13,
-                textDecoration:
-                  "none",
-                boxShadow:
-                  "0 0 20px rgba(124,58,237,.25)",
-              }}
-            >
-              Teacher Login →
-            </Link>
+          {/* Logo icon */}
+          <div style={{ width: 105, height: 105, margin: "0 auto 28px", borderRadius: 30, background: "#fff", border: "1px solid #dceaf7", boxShadow: "0 15px 40px rgba(21,101,192,0.10)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="65" height="65" viewBox="0 0 80 80" fill="none">
+              <path d="M12 20C25 18 34 23 40 32V66C32 57 23 53 12 54V20Z" fill="#1565c0" />
+              <path d="M68 20C55 18 46 23 40 32V66C48 57 57 53 68 54V20Z" fill="#42a5f5" />
+              <path d="M40 32V66" stroke="#0d47a1" strokeWidth="3" strokeLinecap="round" />
+              <path d="M8 24V59C21 58 31 61 40 70C49 61 59 58 72 59V24" stroke="#1565c0" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="40" cy="12" r="5" fill="#1565c0" />
+            </svg>
           </div>
-        </div>
 
-        {/* =================================================
-            MAIN GLASS CARD
-        ================================================= */}
+          {/* Brand */}
+          <div style={{ fontSize: "clamp(32px,5vw,52px)", fontWeight: 800, letterSpacing: "-1.5px", color: "#0d2137", lineHeight: 1.1 }}>
+            GIID <span style={{ color: "#1565c0" }}>Tambaram</span>
+          </div>
+          <div style={{ marginTop: 13, color: "#607d8b", fontSize: "clamp(13px,2vw,16px)", fontWeight: 500 }}>
+            Intelligent learning. Personalized progress.
+          </div>
 
-        <div
-          style={{
-            borderRadius: 28,
-            overflow: "hidden",
-            background:
-              "linear-gradient(135deg,rgba(19,25,61,.92),rgba(10,15,42,.96))",
-            border:
-              "1px solid rgba(139,92,246,.18)",
-            boxShadow:
-              "0 35px 90px rgba(0,0,0,.38),0 0 50px rgba(124,58,237,.08)",
-            backdropFilter:
-              "blur(18px)",
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "1.05fr .95fr",
-              minHeight: 560,
-            }}
-          >
-            {/* =================================================
-                LEFT
-            ================================================= */}
+          {/* Divider */}
+          <div style={{ width: 75, height: 4, borderRadius: 10, background: "#1565c0", margin: "25px auto 23px" }} />
 
-            <div
-              style={{
-                padding: 45,
-                display: "flex",
-                flexDirection:
-                  "column",
-                justifyContent:
-                  "space-between",
-                position: "relative",
-              }}
-            >
-              {/* Mission badge */}
+          {/* Description */}
+          <p style={{ maxWidth: 600, margin: "0 auto", color: "#607d8b", fontSize: "clamp(13px,2vw,15px)", lineHeight: 1.8 }}>
+            A modern adaptive learning environment designed to support every learner through personalized activities, meaningful progress, and accessible technology.
+          </p>
 
-              <motion.div
-                initial={{
-                  opacity: 0,
-                  x: -15,
-                }}
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                }}
-                transition={{
-                  delay: 0.2,
-                }}
-                style={{
-                  width:
-                    "fit-content",
-                  display: "flex",
-                  alignItems:
-                    "center",
-                  gap: 7,
-                  padding:
-                    "7px 11px",
-                  borderRadius: 99,
-                  background:
-                    "rgba(6,182,212,.08)",
-                  border:
-                    "1px solid rgba(6,182,212,.18)",
-                  color: "#67E8F9",
-                  fontSize: 12,
-                  fontWeight: 800,
-                  letterSpacing:
-                    1.1,
-                }}
-              >
-                <span>●</span>
-                LIVE LEARNING SYSTEM
-              </motion.div>
-
-              {/* Heading */}
-
-              <motion.div
-                initial={{
-                  opacity: 0,
-                  y: 15,
-                }}
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                }}
-                transition={{
-                  delay: 0.3,
-                }}
-              >
-                <h1
-                  style={{
-                    margin:
-                      "22px 0 10px",
-                    fontFamily: P,
-                    fontWeight: 800,
-                    fontSize: 42,
-                    lineHeight: 1.08,
-                    color:
-                      "#FFFFFF",
-                  }}
-                >
-                  Learning{" "}
-                  <span
-                    style={{
-                      background:
-                        "linear-gradient(90deg,#A78BFA,#67E8F9)",
-                      WebkitBackgroundClip:
-                        "text",
-                      WebkitTextFillColor:
-                        "transparent",
-                    }}
-                  >
-                    Galaxy
-                  </span>{" "}
-                  🪐
-                </h1>
-
-                <p
-                  style={{
-                    margin: 0,
-                    maxWidth: 430,
-                    color:
-                      "rgba(255,255,255,.52)",
-                    fontSize: 16,
-                    lineHeight: 1.7,
-                  }}
-                >
-                  An intelligent adaptive
-                  learning universe designed
-                  to help every learner
-                  discover, grow and succeed.
-                </p>
-              </motion.div>
-
-              {/* Stats */}
-
-              <motion.div
-                initial={{
-                  opacity: 0,
-                  y: 12,
-                }}
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                }}
-                transition={{
-                  delay: 0.5,
-                }}
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 9,
-                  marginTop: 25,
-                }}
-              >
-                <StatChip
-                  icon="👨‍🎓"
-                  label="Active Learners"
-                  value="2,400+"
-                  color="#67E8F9"
-                />
-
-                <StatChip
-                  icon="🧠"
-                  label="Learning Paths"
-                  value="120+"
-                  color="#A78BFA"
-                />
-
-                <StatChip
-                  icon="⭐"
-                  label="Success Rate"
-                  value="94%"
-                  color="#FACC15"
-                />
-              </motion.div>
-
-              {/* =================================================
-                  LOADING
-              ================================================= */}
-
-              <motion.div
-                initial={{
-                  opacity: 0,
-                }}
-                animate={{
-                  opacity: 1,
-                }}
-                transition={{
-                  delay: 0.7,
-                }}
-                style={{
-                  marginTop: 30,
-                  padding: 17,
-                  borderRadius: 18,
-                  background:
-                    "linear-gradient(135deg,rgba(124,58,237,.13),rgba(6,182,212,.08))",
-                  border:
-                    "1px solid rgba(139,92,246,.15)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems:
-                      "center",
-                    justifyContent:
-                      "space-between",
-                    marginBottom: 12,
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontSize: 15,
-                        fontWeight: 700,
-                        color:
-                          "#FFFFFF",
-                        marginBottom: 3,
-                      }}
-                    >
-                      {loadingText}
-                    </div>
-
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color:
-                          "rgba(255,255,255,.38)",
-                      }}
-                    >
-                      Preparing your
-                      learning experience
-                    </div>
-                  </div>
-
-                  <LoadingDots />
-                </div>
-
-                <ProgressBar
-                  value={progress}
-                />
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent:
-                      "space-between",
-                    marginTop: 6,
-                    fontSize: 12,
-                    color:
-                      "rgba(255,255,255,.42)",
-                  }}
-                >
-                  <span>
-                    Launch sequence
-                  </span>
-
-                  <strong
-                    style={{
-                      color:
-                        "#67E8F9",
-                    }}
-                  >
-                    {Math.round(
-                      progress
-                    )}
-                    %
-                  </strong>
-                </div>
-              </motion.div>
-
-              {/* Tags */}
-
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 7,
-                  marginTop: 12,
-                }}
-              >
-                {[
-                  "AI Powered",
-                  "Accessible",
-                  "Inclusive",
-                  "Real-time Feedback",
-                ].map((tag) => (
-                  <span
-                    key={tag}
-                    style={{
-                      padding:
-                        "5px 9px",
-                      borderRadius: 99,
-                      background:
-                        "rgba(255,255,255,.035)",
-                      border:
-                        "1px solid rgba(255,255,255,.07)",
-                      color:
-                        "rgba(255,255,255,.46)",
-                      fontSize: 12,
-                    }}
-                  >
-                    ✦ {tag}
-                  </span>
-                ))}
+          {/* Feature pills */}
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 10, marginTop: 30 }}>
+            {["Personalized Learning", "Accessible Activities", "Learning Analytics"].map(f => (
+              <div key={f} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 13px", borderRadius: 20, background: "#fff", border: "1px solid #dceaf7", color: "#456477", fontSize: 11, fontWeight: 600 }}>
+                <span style={{ width: 18, height: 18, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#e3f2fd", color: "#1565c0", fontSize: 10, fontWeight: 800 }}>✓</span>
+                {f}
               </div>
+            ))}
+          </div>
+
+          {/* Loading area */}
+          <div style={{ maxWidth: 430, margin: "48px auto 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 11, color: "#607d8b", fontWeight: 500 }}>{MESSAGES[msgIdx]}</span>
+              <span style={{ fontSize: 11, color: "#1565c0", fontWeight: 700 }}>{Math.round(progress)}%</span>
             </div>
-
-            {/* =================================================
-                RIGHT GALAXY
-            ================================================= */}
-
-            <div
-              style={{
-                position:
-                  "relative",
-                display: "flex",
-                alignItems:
-                  "center",
-                justifyContent:
-                  "center",
-                overflow:
-                  "hidden",
-                background:
-                  "radial-gradient(circle at center,rgba(124,58,237,.12),transparent 55%)",
-                borderLeft:
-                  "1px solid rgba(255,255,255,.05)",
-              }}
-            >
-              {/* Orbit circles */}
-
-              <div
-                style={{
-                  position:
-                    "absolute",
-                  width: 390,
-                  height: 390,
-                  borderRadius:
-                    "50%",
-                  border:
-                    "1px solid rgba(139,92,246,.10)",
-                }}
-              />
-
-              <div
-                style={{
-                  position:
-                    "absolute",
-                  width: 300,
-                  height: 300,
-                  borderRadius:
-                    "50%",
-                  border:
-                    "1px solid rgba(6,182,212,.09)",
-                }}
-              />
-
-              {/* Planet */}
-
-              <GalaxyPlanet />
-
-              {/* Floating achievement */}
-
-              <motion.div
-                initial={{
-                  opacity: 0,
-                  x: 20,
-                }}
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                }}
-                transition={{
-                  delay: 0.8,
-                }}
-                style={{
-                  position:
-                    "absolute",
-                  top: 65,
-                  right: 35,
-                  padding:
-                    "10px 13px",
-                  borderRadius: 15,
-                  background:
-                    "rgba(15,23,55,.88)",
-                  border:
-                    "1px solid rgba(250,204,21,.18)",
-                  boxShadow:
-                    "0 10px 30px rgba(0,0,0,.25)",
-                  display: "flex",
-                  alignItems:
-                    "center",
-                  gap: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 20,
-                  }}
-                >
-                  🏆
-                </span>
-
-                <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color:
-                        "#FFFFFF",
-                    }}
-                  >
-                    Achievement
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color:
-                        "rgba(255,255,255,.42)",
-                    }}
-                  >
-                    Level 3 unlocked
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* Progress card */}
-
-              <motion.div
-                initial={{
-                  opacity: 0,
-                  x: -20,
-                }}
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                }}
-                transition={{
-                  delay: 0.95,
-                }}
-                style={{
-                  position:
-                    "absolute",
-                  bottom: 55,
-                  left: 28,
-                  padding:
-                    "10px 13px",
-                  borderRadius: 15,
-                  background:
-                    "rgba(15,23,55,.88)",
-                  border:
-                    "1px solid rgba(6,182,212,.16)",
-                  display: "flex",
-                  alignItems:
-                    "center",
-                  gap: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 20,
-                  }}
-                >
-                  📈
-                </span>
-
-                <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color:
-                        "#FFFFFF",
-                    }}
-                  >
-                    Progress
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color:
-                        "rgba(255,255,255,.42)",
-                    }}
-                  >
-                    +78% this week
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* Main message */}
-
-              <div
-                style={{
-                  position:
-                    "absolute",
-                  bottom: 25,
-                  left: 0,
-                  right: 0,
-                  textAlign:
-                    "center",
-                  fontSize: 13,
-                  color:
-                    "rgba(255,255,255,.38)",
-                }}
-              >
-                Every learner has a
-                <span
-                  style={{
-                    color:
-                      "#67E8F9",
-                    fontWeight: 800,
-                    marginLeft: 3,
-                  }}
-                >
-                  unique journey.
-                </span>
-              </div>
+            <div style={{ width: "100%", height: 6, borderRadius: 20, background: "#dceaf7", overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 20, background: "#1565c0", width: `${progress}%`, transition: "width 0.25s ease-out" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", gap: 5, marginTop: 13 }}>
+              {[0, 1, 2].map(i => (
+                <span key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#1565c0", display: "inline-block", animation: `pulse 1s ${i * 0.2}s infinite` }} />
+              ))}
             </div>
           </div>
         </div>
+      </main>
 
-        {/* =================================================
-            FOOTER
-        ================================================= */}
+      {/* Bottom brand */}
+      <div style={{ position: "absolute", zIndex: 20, bottom: 18, left: 0, width: "100%", textAlign: "center" }}>
+        <span style={{ color: "#fff", fontSize: 10, fontWeight: 600, letterSpacing: 0.4 }}>Empowering every learner.</span>
+      </div>
 
-        <motion.div
-          initial={{
-            opacity: 0,
-          }}
-          animate={{
-            opacity: 1,
-          }}
-          transition={{
-            delay: 1,
-          }}
-          style={{
-            display: "flex",
-            alignItems:
-              "center",
-            justifyContent:
-              "space-between",
-            marginTop: 15,
-            padding:
-              "0 4px",
-          }}
-        >
-          <span
-            style={{
-              fontSize: 12,
-              color:
-                "rgba(255,255,255,.28)",
-            }}
-          >
-            © 2025 GIID Tambaram
-          </span>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 15,
-            }}
-          >
-            {[
-              "Privacy",
-              "Terms",
-              "Accessibility",
-            ].map((item) => (
-              <span
-                key={item}
-                style={{
-                  fontSize: 12,
-                  color:
-                    "rgba(255,255,255,.28)",
-                  cursor: "pointer",
-                }}
-              >
-                {item}
-              </span>
-            ))}
-          </div>
-        </motion.div>
-      </motion.div>
-
-      {/* =================================================
-          GLOBAL ANIMATION
-      ================================================= */}
-
-      <style>{`
-        * {
-          box-sizing: border-box;
-        }
-
-        body {
-          margin: 0;
-          background: #070B24;
-        }
-
-        @media (max-width: 800px) {
-          .splash-main-grid {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
+      <style>{`@keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }`}</style>
     </div>
   );
 }

@@ -32,6 +32,7 @@ export const teacherApi = {
 };
 
 // ── Student ────────────────────────────────────────────────────────────────
+// ── Student ────────────────────────────────────────────────────────────────
 
 export const studentApi = {
   getTopics: () =>
@@ -40,11 +41,26 @@ export const studentApi = {
   getNextActivity: (student_id: string, unit_id: string) =>
     api.get("/api/student/next-activity", { params: { student_id, unit_id } }).then(r => r.data),
 
-  submitAnswer: (data: { student_id: string; subtopic_id: string; selected_option: number; hint_used: boolean }) =>
+  submitAnswer: (data: {
+    student_id: string;
+    subtopic_id: string;
+    selected_option: number;
+    question_type?: string;
+    hint_used: boolean;
+  }) =>
     api.post("/api/student/submit-answer", data).then(r => r.data),
+
+  // ADD THIS FUNCTION:
+  submitDiagnostic: (data: {
+    student_id: string;
+    unit_id: string;
+    answers: Array<{ subtopic_id: string; correct: boolean }>;
+  }) =>
+    api.post("/api/student/diagnostic", data).then(r => r.data),
 
   getMastery: (student_id: string, unit_id: string) =>
     api.get("/api/student/mastery", { params: { student_id, unit_id } }).then(r => r.data),
 };
+
 
 export default api;

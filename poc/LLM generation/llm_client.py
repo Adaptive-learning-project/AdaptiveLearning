@@ -20,10 +20,14 @@ from schemas import SCHEMA_MAP
 load_dotenv()
 
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-USE_MOCK_LLM: bool = os.getenv("USE_MOCK_LLM", "true").lower() == "true"
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+USE_MOCK_LLM: bool = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
 
 MAX_RETRIES: int = 3
-RETRY_DELAY_SECONDS: float = 2.0
+# Base delay for exponential back-off on JSON/validation failures.
+# Actual wait = RETRY_BASE_DELAY * (2 ** attempt) so retries are:
+#   attempt 1 → 0.5 s, attempt 2 → 1.0 s (was a flat 2.0 s every time)
+RETRY_BASE_DELAY: float = 0.5
 
 # Per-type temperatures — explanations need accuracy, questions need variety
 _TEMPERATURE_MAP: dict[str, float] = {
@@ -32,6 +36,21 @@ _TEMPERATURE_MAP: dict[str, float] = {
     "easy_question":      0.65,
     "medium_question":    0.70,
     "hint":               0.40,
+}
+
+# Per-type token budgets — sized to fit the schema without excess padding.
+# Shorter budgets reduce time-to-first-token and total generation time.
+#   hint              ~  80 tokens  → ceiling 150
+#   easy_question     ~ 120 tokens  → ceiling 250
+#   medium_question   ~ 160 tokens  → ceiling 300
+#   easy_explanation  ~ 220 tokens  → ceiling 350
+#   medium_explanation~ 350 tokens  → ceiling 500
+_MAX_TOKENS_MAP: dict[str, int] = {
+    "easy_explanation":   350,
+    "medium_explanation": 500,
+    "easy_question":      250,
+    "medium_question":    300,
+    "hint":               150,
 }
 
 _SYSTEM_PROMPT = (
@@ -142,13 +161,14 @@ def _call_groq(prompt: str, content_type: str = "") -> str:
     """
     Call the Groq API and return the raw response text.
     Uses response_format=json_object to guarantee valid JSON output.
-    Uses a per-type temperature and an engineering-level system prompt.
+    Uses a per-type temperature, per-type max_tokens, and an engineering-level system prompt.
     Raises RuntimeError if the API call fails.
     """
     try:
         from groq import Groq
         client = Groq(api_key=GROQ_API_KEY)
         temperature = _TEMPERATURE_MAP.get(content_type, 0.40)
+        max_tokens = _MAX_TOKENS_MAP.get(content_type, 500)
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
@@ -157,7 +177,7 @@ def _call_groq(prompt: str, content_type: str = "") -> str:
             ],
             temperature=temperature,
             response_format={"type": "json_object"},  # guarantees valid JSON
-            max_tokens=900,
+            max_tokens=max_tokens,
         )
         return response.choices[0].message.content
     except Exception as exc:
@@ -258,8 +278,16 @@ def generate_content(content_type: str, subtopic: str) -> dict:
     Raises:
         RuntimeError if all retries are exhausted.
     """
+    # When called from the parallel runner, verbose per-call logs are suppressed
+    # so they don't break the progress display. Set LLM_SILENT=0 to re-enable.
+    silent = os.getenv("LLM_SILENT", "0") == "1"
+
+    def log(msg: str) -> None:
+        if not silent:
+            print(msg)
+
     if USE_MOCK_LLM:
-        print(f"  [MOCK] Generating {content_type} for '{subtopic}'")
+        log(f"  [MOCK] Generating {content_type} for '{subtopic}'")
         data = _get_mock_response(content_type, subtopic)
         return _validate(data, content_type)
 
@@ -271,22 +299,26 @@ def generate_content(content_type: str, subtopic: str) -> dict:
 
     prompt = get_prompt(content_type, subtopic)
     last_error: Exception | None = None
+    t_start = time.perf_counter()
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            print(f"  [GROQ] Attempt {attempt}/{MAX_RETRIES} — {content_type} for '{subtopic}'")
+            log(f"  [GROQ] Attempt {attempt}/{MAX_RETRIES} — {content_type} for '{subtopic}'")
             raw = _call_groq(prompt, content_type)
             data = _extract_json(raw)
             data = _normalize(data, content_type, subtopic)
             validated = _validate(data, content_type)
-            print(f"  [GROQ] ✓ Valid on attempt {attempt}")
+            elapsed = time.perf_counter() - t_start
+            log(f"  [GROQ] ✓ Valid on attempt {attempt} ({elapsed:.2f}s)")
             return validated
 
         except (json.JSONDecodeError, ValidationError, KeyError) as exc:
             last_error = exc
-            print(f"  [GROQ] ✗ Attempt {attempt} failed: {exc}")
+            elapsed = time.perf_counter() - t_start
+            log(f"  [GROQ] ✗ Attempt {attempt} failed ({elapsed:.2f}s): {exc}")
             if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY_SECONDS)
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                time.sleep(delay)
 
         except RuntimeError:
             raise  # API key / network error — no point retrying
