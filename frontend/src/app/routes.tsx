@@ -1,5 +1,4 @@
-import { createBrowserRouter } from "react-router";
-
+import { createBrowserRouter, Navigate } from "react-router";
 import SplashPage from "./pages/SplashPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -31,22 +30,11 @@ import LearningModuleDetailsPage from "./pages/LearningModuleDetailsPage";
 import TeacherPage from "./pages/TeacherPage";
 import StudentPage from "./pages/StudentPage";
 
-
-
 const router = createBrowserRouter([
-  /* =========================================================
-     SPLASH
-  ========================================================= */
-
-  {
+    {
     path: "/",
     element: <SplashPage />,
   },
-
-
-  /* =========================================================
-     AUTHENTICATION
-  ========================================================= */
 
   {
     path: "/login",
@@ -293,11 +281,6 @@ const router = createBrowserRouter([
     ),
   },
 
-
-  /* =========================================================
-     AI ACTIVITY GENERATOR
-  ========================================================= */
-
   {
     path: "/ai-generator",
     element: (
@@ -308,39 +291,16 @@ const router = createBrowserRouter([
       </RoleProtectedRoute>
     ),
   },
-
-
-  /* =========================================================
-     ADMIN
-  ========================================================= */
-
-  {
-    path: "/admin",
-    element: (
-      <RoleProtectedRoute
-        roles={["admin"]}
-      >
-        <AdminDashboardPage />
-      </RoleProtectedRoute>
-    ),
-  },
-
-
-  /* =========================================================
-     ADAPTIVE LEARNING — NEW FLOWS
-  ========================================================= */
-
   {
     path: "/teacher",
     element: <TeacherPage />,
   },
 
-  {
-    path: "/student",
-    element: <StudentPage />,
-  },
-
-
+  { path: "/", element: <Navigate to="/login" replace /> },
+  { path: "/login", element: <LoginPage /> },
+  { path: "/learning-modules", element: <LearningModulesPage /> },
+  { path: "/student", element: <StudentPage /> },
+  { path: "/admin", element: <AdminDashboardPage /> },
   /* =========================================================
      OPTIONAL 404
   ========================================================= */

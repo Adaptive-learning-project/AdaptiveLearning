@@ -1,265 +1,163 @@
 """
-llm_generator.py — Pedagogical C++ generator with tagged difficulty levels and question pools.
+backend/app/llm_generator.py
+Just-In-Time Constrained Content & Diagnostic Generator using Groq
 """
 
-import json
 import os
-import random
-from dotenv import load_dotenv
+import json
+import time
 from groq import Groq
+from app.schemas import PedagogicalDecision
 
-load_dotenv()
-
-GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 client = Groq(api_key=GROQ_API_KEY)
 
-SYSTEM_PROMPT = """\
-You are an expert C++ Computer Science educator.
-Generate high-quality adaptive learning units with structured difficulty metadata.
-Rules:
-- Explanations must be complete, instructive, and free of meta template headings.
-- "diagnostic_question" must be labeled difficulty "easy".
-- "easy_questions" must all be labeled difficulty "easy".
-- "standard_questions" MUST be ordered with strictly increasing difficulty:
-    * Index 0: "easy-medium" (direct code reading/output check)
-    * Index 1: "medium" (logic flow or return resolution)
-    * Index 2: "medium-hard" (subtle edge condition or overload disambiguation)
-- "hard_question" must be labeled difficulty "hard".
-- Return ONLY valid JSON matching the schema.
-"""
 
-def generate_all(topic: str, subtopic: str, reference_text: str = "", all_subtopics: list[str] | None = None) -> dict:
-    prior = [s for s in (all_subtopics or []) if s != subtopic]
-    prior_str = ", ".join(prior[:2]) if prior else f"basics of {topic}"
+def generate_diagnostic_questions(topic: str, subtopic_name: str, reference_text: str = "") -> list:
+    """
+    Generates 3 initial diagnostic MCQs for a subtopic when initialized by admin.
+    Tests baseline recall and prerequisite understanding.
+    """
+    print(f"\n🩺 [DIAGNOSTIC GENERATION] Generating baseline diagnostic questions for: {subtopic_name}")
 
-    user_prompt = f"""Generate an adaptive C++ learning package for "{subtopic}" (Course/Topic: "{topic}").
-Prior context: {prior_str}.
-Reference material: {reference_text.strip() or "Standard Modern C++ (C++17/20)"}.
+    prompt = f"""You are an expert computer science curriculum diagnostic generator.
+Topic: {topic}
+Subtopic: {subtopic_name}
+Reference Context: {reference_text if reference_text else "Standard undergraduate computer science fundamentals."}
 
-JSON Schema:
+Generate exactly 3 baseline diagnostic multiple-choice questions to assess prior knowledge.
+Questions must test prerequisite and foundational understanding.
+
+Return ONLY a valid JSON object matching this schema:
 {{
-  "overview": {{
-    "what_we_know": "Recall {prior_str}.",
-    "what_we_study": "1 sentence defining {subtopic}.",
-    "expected_outcome": "1 sentence on practical capability mastered."
-  }},
-  "main_explanation": {{
-    "text": "4 clean, informative sentences explaining {subtopic}, syntax rules, compiler checks, and memory behaviors without template labels.",
-    "code_snippet": "// 5-8 lines of clean, compilable standard C++ code\\n",
-    "takeaway": "1-line golden rule."
-  }},
-  "simple_explanation": {{
-    "text": "2-sentence real-world analogy."
-  }},
-  "example": {{
-    "text": "2-sentence software engineering application."
-  }},
-  "prerequisite": {{
-    "text": "Sentence 1: Prerequisite concept. Sentence 2: Why {subtopic} fails without it."
-  }},
-  "hint": {{
-    "text": "Targeted diagnostic clue reinforcing the rule without stating the option index."
-  }},
-  "diagnostic_question": {{
-    "text": "Readiness diagnostic question for {subtopic}:",
-    "difficulty": "easy",
-    "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
-    "correct": 0,
-    "explanation": "Why this tests prerequisite readiness."
-  }},
-  "easy_questions": [
+  "questions": [
     {{
-      "text": "Syntax/rule question 1:",
-      "difficulty": "easy",
-      "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "question": "question text",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
       "correct": 0,
-      "explanation": "Rule rationale."
-    }},
-    {{
-      "text": "Syntax/rule question 2:",
       "difficulty": "easy",
-      "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
-      "correct": 0,
-      "explanation": "Rule rationale."
-    }},
-    {{
-      "text": "Syntax/rule question 3:",
-      "difficulty": "easy",
-      "options": ["Correct", "Distractor 1", "Distractor 2", "Distractor 3"],
-      "correct": 0,
-      "explanation": "Rule rationale."
+      "explanation": "concise explanation",
+      "error_tags": ["prerequisite_gap", "syntax_confusion", "misconception", "unrelated"]
     }}
-  ],
-  "standard_questions": [
-    {{
-      "text": "Direct output tracing of the code snippet:",
-      "difficulty": "easy-medium",
-      "options": ["Correct output", "Distractor 1", "Distractor 2", "Distractor 3"],
-      "correct": 0,
-      "explanation": "Step-by-step execution."
-    }},
-    {{
-      "text": "Behavioral prediction when inputs or types are altered:",
-      "difficulty": "medium",
-      "options": ["Correct outcome", "Distractor 1", "Distractor 2", "Distractor 3"],
-      "correct": 0,
-      "explanation": "Resolution mechanics."
-    }},
-    {{
-      "text": "Deep resolution question testing parameter binding or overload rules:",
-      "difficulty": "medium-hard",
-      "options": ["Correct outcome", "Distractor 1", "Distractor 2", "Distractor 3"],
-      "correct": 0,
-      "explanation": "Detailed standard breakdown."
-    }}
-  ],
-  "hard_question": {{
-    "text": "Code modification introducing an edge-case bug or compiler error:",
-    "difficulty": "hard",
-    "options": ["Accurate diagnosis", "Distractor 1", "Distractor 2", "Distractor 3"],
-    "correct": 0,
-    "explanation": "In-depth standard C++ explanation."
-  }}
+  ]
 }}"""
 
     try:
-        resp = client.chat.completions.create(
+        response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
+                {"role": "system", "content": "You output strictly valid JSON with no introductory or conversational text."},
+                {"role": "user", "content": prompt}
             ],
-            temperature=0.25,
+            temperature=0.2,
             response_format={"type": "json_object"},
-            max_tokens=3200,
+            max_tokens=1000
         )
-        data = json.loads(resp.choices[0].message.content.strip())
-
-        # Shuffle options while preserving structure and difficulty tags
-        for k in ["diagnostic_question", "hard_question"]:
-            if k in data and isinstance(data[k], dict):
-                data[k] = _shuffle_options(data[k])
-
-        for pool in ["easy_questions", "standard_questions"]:
-            if pool in data and isinstance(data[pool], list):
-                data[pool] = [_shuffle_options(q) for q in data[pool] if isinstance(q, dict)]
-
-        return data
-    except Exception as exc:
-        print(f"[Generator] Call failed: {exc} — invoking fallback.")
-        return generate_fallback(topic, subtopic)
-
-def _shuffle_options(q: dict) -> dict:
-    if "options" in q and "correct" in q:
-        try:
-            correct_val = q["options"][int(q["correct"])]
-            random.shuffle(q["options"])
-            q["correct"] = q["options"].index(correct_val)
-        except Exception:
-            pass
-    return q
-
-def generate_fallback(topic: str, subtopic: str) -> dict:
-    return {
-        "overview": {
-            "what_we_know": f"You understand fundamental principles in {topic}.",
-            "what_we_study": f"We explore {subtopic} and how standard C++ handles execution.",
-            "expected_outcome": f"Implement and debug {subtopic} confidently."
-        },
-        "main_explanation": {
-            "text": (
-                f"{subtopic} provides essential modularity and interface contracts in modern C++.\n"
-                "The compiler verifies all calls and types at compile-time to maintain strict type safety.\n"
-                "Methods and operators must adhere strictly to declaration signatures and scope limits.\n"
-                "Understanding these mechanics prevents costly runtime errors and undefined behavior."
-            ),
-            "code_snippet": (
-                "#include <iostream>\n\n"
-                "class Demo {\n"
-                "public:\n"
-                "    void execute(int x) { std::cout << x * 2; }\n"
-                "    void execute(double x) { std::cout << x + 1.5; }\n"
-                "};\n\n"
-                "int main() {\n"
-                "    Demo d;\n"
-                "    d.execute(5);\n"
-                "    return 0;\n"
-                "}"
-            ),
-            "takeaway": f"Properly declare and match parameter signatures for {subtopic}."
-        },
-        "simple_explanation": {
-            "text": f"Think of {subtopic} like a multi-tool: the core handle is constant, but the specific tool engaged depends on the task at hand."
-        },
-        "example": {
-            "text": "Game and physics engines rely on this to route input actions and coordinate transformations seamlessly."
-        },
-        "prerequisite": {
-            "text": f"Familiarity with foundational C++ data types, functions, and scoping rules is required for {subtopic}."
-        },
-        "hint": {
-            "text": "Check parameter count and exact type signatures to predict compiler resolution."
-        },
-        "diagnostic_question": {
-            "text": f"What is a primary compile-time check enforced for {subtopic}?",
-            "difficulty": "easy",
-            "options": ["Signature and type matching", "Automatic variable allocation", "Dynamic garbage cleanup", "Heap fragmentation checks"],
-            "correct": 0,
-            "explanation": "C++ checks function signatures and types at compile time."
-        },
-        "easy_questions": [
+        data = json.loads(response.choices[0].message.content.strip())
+        questions = data.get("questions", [])
+        print(f"   ✅ Diagnostic generation succeeded: {len(questions)} items ready.")
+        return questions
+    except Exception as e:
+        print(f"   ❌ Diagnostic generation fallback invoked: {e}")
+        return [
             {
-                "text": "Which condition must be met to satisfy C++ signature matching?",
-                "difficulty": "easy",
-                "options": ["Parameter types, count, or order must differ", "Return types alone must differ", "Function names must be distinct", "Variables must be global"],
+                "question": f"What is the core purpose of {subtopic_name} in {topic}?",
+                "options": ["Core foundation", "Memory optimization", "GUI display", "Network protocol"],
                 "correct": 0,
-                "explanation": "Signatures depend on parameter types, order, and count."
-            },
-            {
-                "text": "When are standard static overloads resolved?",
                 "difficulty": "easy",
-                "options": ["At compile time", "During runtime dispatch", "After program exit", "Inside the OS loader"],
-                "correct": 0,
-                "explanation": "Static resolution occurs during compilation."
-            },
-            {
-                "text": "Can two identical function signatures differ only by return type?",
-                "difficulty": "easy",
-                "options": ["No, the compiler flags a redefinition error", "Yes, always allowed", "Yes, if marked static", "Yes, in namespaces"],
-                "correct": 0,
-                "explanation": "Return types alone are insufficient to distinguish signatures."
+                "explanation": "Basic definition check.",
+                "error_tags": ["concept_error", "memory_confusion", "syntax_error", "unrelated"]
             }
-        ],
-        "standard_questions": [
-            {
-                "text": "Given the code snippet, what output is printed when d.execute(5) runs?",
-                "difficulty": "easy-medium",
-                "options": ["10", "6.5", "5", "Compilation error"],
-                "correct": 0,
-                "explanation": "The integer 5 calls execute(int), computing 5 * 2 = 10."
-            },
-            {
-                "text": "If d.execute(4.0) is called instead, which overload executes?",
-                "difficulty": "medium",
-                "options": ["execute(double)", "execute(int)", "Both simultaneously", "None; ambiguous call"],
-                "correct": 0,
-                "explanation": "4.0 is a double literal and resolves cleanly to execute(double)."
-            },
-            {
-                "text": "What happens if a call d.execute('a') is made?",
-                "difficulty": "medium-hard",
-                "options": ["Promotes to int and invokes execute(int)", "Causes an ambiguous call compiler error", "Produces a runtime fault", "Fails compilation due to missing char overload"],
-                "correct": 0,
-                "explanation": "Standard integral promotion converts 'a' to int, matching execute(int) cleanly."
-            }
-        ],
-        "hard_question": {
-            "text": "Suppose execute is modified to take (int, double) and (double, int). What happens upon calling d.execute(5, 5)?",
-            "difficulty": "hard",
-            "options": ["Compilation error: ambiguous call", "Executes (int, double)", "Executes (double, int)", "Implicitly casts to (double, double)"],
-            "correct": 0,
-            "explanation": "Both overloads require one exact match and one conversion, producing an ambiguous call error."
+        ]
+
+
+def generate_on_the_fly_content(decision: PedagogicalDecision) -> dict:
+    """
+    Generates the exact pedagogical piece commanded by the Cognitive Governor.
+    """
+    print("\n" + "─" * 70)
+    print("🤖 [LLM GENERATOR: ON-THE-FLY SYNTHESIS]")
+    print(f"   • Concept:         {decision.concept}")
+    print(f"   • Action Spec:     {decision.action.upper()}")
+    print(f"   • Cognitive State: {decision.cognitive_state}")
+    print(f"   • Difficulty Tier: {decision.difficulty}")
+    print(f"   • Goal:            {decision.intervention_goal}")
+    print(f"   • Error Targeted:  {decision.specific_error}")
+    print("─" * 70)
+
+    system_prompt = (
+        "You are an automated pedagogical sub-processor for CS education. "
+        "You are strictly forbidden from choosing the learner's path or difficulty tier. "
+        "You only fulfill the exact Pedagogical Action specified. "
+        "Return ONLY a valid JSON object matching the requested schema."
+    )
+
+    user_prompt = f"""
+PEDAGOGICAL SPECIFICATION:
+- Concept: {decision.concept}
+- Required Action: {decision.action}
+- Difficulty: {decision.difficulty}
+- Goal: {decision.intervention_goal}
+- Targeted Error: {decision.specific_error}
+- Constraints: {', '.join(decision.constraints) if decision.constraints else 'None'}
+
+SCHEMA INSTRUCTIONS:
+1. If action is "hint":
+   {{"type": "hint", "text": "concise targeted hint", "comfort_message": "supportive phrase"}}
+2. If action is "simple_example" or "explanation":
+   {{"type": "{decision.action}", "title": "short title", "explanation": "clear visual text", "code_snippet": "minimal code or empty string", "key_takeaway": "single sentence"}}
+3. If action is "easy_question", "medium_question", "hard_transfer", or "bridge_rescue":
+   {{"type": "{decision.action}", "question": "the question", "code_snippet": "optional snippet or empty string", "options": ["Option A", "Option B", "Option C", "Option D"], "correct_index": 0, "explanation": "why correct", "error_tags": ["error for A", "error for B", "error for C", "error for D"]}}
+
+Generate valid JSON:
+"""
+
+    start_time = time.time()
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+            max_tokens=900
+        )
+        latency = (time.time() - start_time) * 1000
+        parsed = json.loads(response.choices[0].message.content.strip())
+        print(f"⚡ [LLM 200 OK] Synthesized {parsed.get('type')} in {latency:.1f}ms\n")
+        return parsed
+    except Exception as e:
+        print(f"❌ [LLM GENERATION FAILED] Fallback invoked: {e}")
+        return {
+            "type": decision.action,
+            "question": f"Which statement best explains {decision.concept}?",
+            "options": ["Correct fundamental definition", "Wrong mechanism", "Syntactic mistake", "Irrelevant concept"],
+            "correct_index": 0,
+            "explanation": "Fallback recall check.",
+            "error_tags": ["None", "mechanism_error", "syntax_error", "misconception"]
         }
-    }
+
+
+def generate_hybrid_bridge(topic: str, subtopic: str, failed_questions: list, easy_question_passed: dict = None) -> dict:
+    """Fallback bridge rescue generator for persistent oscillation loops."""
+    prompt = f"""A student in topic '{topic}', subtopic '{subtopic}' is stuck in an oscillation loop.
+Failed details: {json.dumps(failed_questions)}
+Generate a concise conceptual bridge analogy linking what they passed to what they are failing.
+Return JSON with 'bridge_title', 'analogy', and 'key_rule'."""
+    try:
+        resp = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=600
+        )
+        return json.loads(resp.choices[0].message.content.strip())
+    except Exception:
+        return {
+            "bridge_title": f"Bridging Concept in {subtopic}",
+            "analogy": "Think of the base definition as a blueprint, and the runtime call as the built house.",
+            "key_rule": "Declarative syntax allows compilation, while dynamic mechanisms govern runtime resolution."
+        }

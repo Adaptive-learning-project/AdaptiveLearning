@@ -4,20 +4,14 @@ from typing import List, Literal, Optional
 # ── Existing models (unchanged) ───────────────────────────────────────────────
 
 class CreateUnitRequest(BaseModel):
-    teacher_id: str
     topic: str
-    subtopics: List[str]          # ordered list of subtopic names
-    reference_text: Optional[str] = ""  # optional pasted text/notes
+    subtopics: List[str]
+    reference_text: Optional[str] = ""
+    teacher_id: Optional[str] = "admin_01"  # optional pasted text/notes
 
 class ApproveContentRequest(BaseModel):
     subtopic_id: str
 
-class SubmitAnswerRequest(BaseModel):
-    student_id: str                          # Must be str to support names like "Ananya"
-    subtopic_id: str
-    selected_option: int
-    question_type: Optional[str] = "question" # Defaults to "question" if missing
-    hint_used: bool = False
 class ResolveEscalationRequest(BaseModel):
     escalation_id: str
     teacher_note: Optional[str] = ""
@@ -90,3 +84,71 @@ class NextActivityResponse(BaseModel):
     hint_dependent:     bool = False # hybrid layer active
     dag_action:         str  = "stay"           # stay / forward / backward / complete
     remediation_target: Optional[str] = None    # subtopic_id if backward DAG traversal
+
+"""
+backend/app/schemas.py
+Pydantic Schemas for Cognitive Governor, Telemetry, and Pedagogical Specifications
+"""
+
+from typing import List, Optional, Literal, Dict, Any
+from pydantic import BaseModel, Field
+from datetime import datetime
+
+PedagogicalAction = Literal[
+    "explanation",
+    "simple_example",
+    "easy_question",
+    "medium_question",
+    "hard_transfer",
+    "hint",
+    "bridge_rescue",
+    "prerequisite_bridge"
+]
+
+CognitiveState = Literal[
+    "LEARNING",
+    "STRUGGLING",
+    "OVERCHALLENGED",
+    "OSCILLATING",
+    "PREREQUISITE_GAP",
+    "MASTERED"
+]
+
+class PedagogicalDecision(BaseModel):
+    concept: str
+    action: PedagogicalAction
+    difficulty: int
+    cognitive_state: CognitiveState
+    intervention_goal: str
+    specific_error: Optional[str] = "None"
+    constraints: List[str] = []
+
+class SubmitAnswerRequest(BaseModel):
+    student_id: str
+    unit_id: Optional[str] = None
+    subtopic_id: str
+    subtopic_name: Optional[str] = "General Concept"  # Prevents 422 if omitted
+    selected_option: int
+    correct_option: Optional[int] = None
+    correct: Optional[bool] = None
+    hint_used: bool = False
+    question_type: Optional[str] = "question"
+    response_time_ms: int = 0
+    option_switch_count: int = 0
+    current_difficulty: int = 1
+    recent_errors: List[str] = []
+
+class DiagnosticLog(BaseModel):
+    student_id: str
+    subtopic_id: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    is_correct: bool
+    response_time_ms: int
+    option_switch_count: int
+    error_tag: str
+    p_l_before: float
+    p_l_after: float
+    cognitive_state: CognitiveState
+    governor_action: PedagogicalAction
+    intervention_goal: str
+    generated_content: Dict[str, Any]

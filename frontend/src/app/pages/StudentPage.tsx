@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { studentApi } from "../api/adaptiveApi";
 
 const P = "Poppins, sans-serif";
@@ -10,8 +11,7 @@ const TEXT = "#0d2137";
 const MUTED = "#607d8b";
 const LIGHT_BLUE = "#eaf3ff";
 
-// ── INDIAN ENGLISH NATURAL TTS ────────────────────────────────────────────────
-
+// --- NATURAL INDIAN EN-IN SPACED TTS ENGINE ---
 let cachedVoice: SpeechSynthesisVoice | null = null;
 
 function getIndianVoice(): SpeechSynthesisVoice | null {
@@ -19,543 +19,450 @@ function getIndianVoice(): SpeechSynthesisVoice | null {
   if (cachedVoice) return cachedVoice;
 
   const voices = window.speechSynthesis.getVoices();
-  if (!voices || voices.length === 0) return null;
+  cachedVoice =
+    voices.find(
+      (v) =>
+        v.lang.replace("_", "-").toLowerCase() === "en-in" ||
+        v.name.toLowerCase().includes("india") ||
+        v.name.toLowerCase().includes("neerja") ||
+        v.name.toLowerCase().includes("ravi") ||
+        v.name.toLowerCase().includes("veena")
+    ) ||
+    voices.find((v) => v.lang.startsWith("en-GB")) ||
+    voices.find((v) => v.lang.startsWith("en")) ||
+    null;
 
-  const preferred = voices.find(v =>
-    v.lang.replace("_", "-").toLowerCase() === "en-in" ||
-    v.name.toLowerCase().includes("india") ||
-    v.name.toLowerCase().includes("neerja") ||
-    v.name.toLowerCase().includes("prabhat")
-  );
-
-  cachedVoice = preferred || voices.find(v => v.lang.startsWith("en")) || null;
   return cachedVoice;
 }
 
-if ("speechSynthesis" in window) {
-  window.speechSynthesis.onvoiceschanged = () => { getIndianVoice(); };
+if (typeof window !== "undefined" && "speechSynthesis" in window) {
+  window.speechSynthesis.onvoiceschanged = () => {
+    cachedVoice = null;
+    getIndianVoice();
+  };
 }
 
-function cleanSpeech(raw: string): string {
-  if (!raw) return "";
-  return raw
-    .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, "")
-    .replace(/```[\s\S]*?```/g, ", , Look at the code snippet on screen. , ,")
-    .replace(/`/g, "")
-    .replace(/:\s+/g, ": , ")
-    .replace(/\bC\+\+\b/g, "C plus plus")
-    .replace(/= 0;/g, "equals zero semicolon")
+function speakIndianSpaced(text: string, onEnd?: () => void) {
+  if (!("speechSynthesis" in window)) {
+    onEnd?.();
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+
+  // Spaced cadence formatting to avoid rushing technical jargon
+  const spacedText = text
+    .replace(/([A-Z]{2,})/g, " $1 ") // acronym spacing (e.g. DAG -> D A G)
+    .replace(/([.?!])/g, "$1 ... ")  // natural pause after sentences
+    .replace(/([,:;])/g, "$1 ")       // natural pause after clauses
     .replace(/\s+/g, " ")
     .trim();
+
+  const utterance = new SpeechSynthesisUtterance(spacedText);
+  const voice = getIndianVoice();
+  if (voice) utterance.voice = voice;
+
+  utterance.rate = 0.86; // natural Indian cadence
+  utterance.pitch = 1.02;
+
+  if (onEnd) utterance.onend = onEnd;
+  window.speechSynthesis.speak(utterance);
 }
 
-function speak(text: string, onEnd?: () => void) {
-  if (!("speechSynthesis" in window)) { onEnd?.(); return; }
-  window.speechSynthesis.cancel();
-  const cl = cleanSpeech(text);
-  if (!cl) { onEnd?.(); return; }
-  const u = new SpeechSynthesisUtterance(cl);
-  const v = getIndianVoice();
-  if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = "en-IN"; }
-  u.rate = 0.86;
-  u.pitch = 1.0;
-  if (onEnd) u.onend = onEnd;
-  window.speechSynthesis.speak(u);
-}
-
-function stopSpeech() {
-  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-}
-
-// ── DIFFICULTY BADGE ──────────────────────────────────────────────────────────
-
-function DifficultyBadge({ difficulty }: { difficulty?: string }) {
-  const d = (difficulty || "medium").toLowerCase();
-  let bg = "#f1f5f9";
-  let color = "#475569";
-  let border = "#cbd5e1";
-
-  if (d === "easy") {
-    bg = "#f0fdf4"; color = "#16a34a"; border = "#bbf7d0";
-  } else if (d === "easy-medium") {
-    bg = "#f0fdfa"; color = "#0d9488"; border = "#99f6e4";
-  } else if (d === "medium") {
-    bg = "#eff6ff"; color = "#2563eb"; border = "#bfdbfe";
-  } else if (d === "medium-hard") {
-    bg = "#fffbeb"; color = "#d97706"; border = "#fde68a";
-  } else if (d === "hard") {
-    bg = "#fef2f2"; color = "#dc2626"; border = "#fecaca";
+function stopTTS() {
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
   }
-
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      padding: "3px 10px", borderRadius: 20, fontSize: 11,
-      fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em",
-      background: bg, color: color, border: `1px solid ${border}`
-    }}>
-      ● {d}
-    </span>
-  );
 }
 
-// ── SHARED ATOMS ──────────────────────────────────────────────────────────────
+export default function StudentPage() {
+  const navigate = useNavigate();
+  const [studentName] = useState(() => sessionStorage.getItem("student_name") || "Student");
+  const [studentId] = useState(() => sessionStorage.getItem("student_id") || "student_demo");
+  const [unitId] = useState(() => sessionStorage.getItem("unit_id") || "");
 
-function SpeakBtn({ text, label = "🔊 Listen again" }: { text: string; label?: string }) {
-  return (
-    <button onClick={() => speak(text)} style={{
-      background: LIGHT_BLUE, border: "1px solid #c5ddf8", borderRadius: 8,
-      padding: "6px 14px", cursor: "pointer", color: BLUE, fontFamily: P,
-      fontSize: 13, fontWeight: 700,
-    }}>
-      {label}
-    </button>
-  );
-}
-
-function PrimaryBtn({ onClick, children, disabled = false, color }: {
-  onClick: () => void; children: React.ReactNode; disabled?: boolean; color?: string;
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled} style={{
-      width: "100%", padding: "16px 0", borderRadius: 14, border: "none",
-      background: disabled ? "#cbd5e1" : (color || BLUE),
-      color: "#fff", fontFamily: P, fontWeight: 700, fontSize: 17,
-      cursor: disabled ? "default" : "pointer", marginTop: 14,
-      boxShadow: disabled ? "none" : "0 6px 18px rgba(21,101,192,0.22)",
-      transition: "all .2s",
-    }}>
-      {children}
-    </button>
-  );
-}
-
-function OverviewCard({ overview }: { overview: { what_we_know: string; what_we_study: string; expected_outcome: string } }) {
-  return (
-    <div style={{ background: WHITE, borderRadius: 16, padding: "20px", marginBottom: 18, border: `1px solid #c5ddf8`, boxShadow: "0 2px 10px rgba(21,101,192,0.06)" }}>
-      <div style={{ fontSize: 11, fontWeight: 800, color: BLUE, letterSpacing: "0.10em", textTransform: "uppercase", marginBottom: 14 }}>
-        📍 Lesson Overview
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ display: "flex", gap: 10 }}>
-          <span>✅</span>
-          <span style={{ fontSize: 14, color: "#334155" }}><strong>What we know:</strong> {overview.what_we_know}</span>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <span>📖</span>
-          <span style={{ fontSize: 14, color: "#334155" }}><strong>Studying now:</strong> {overview.what_we_study}</span>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <span>🎯</span>
-          <span style={{ fontSize: 14, color: "#334155" }}><strong>Outcome:</strong> {overview.expected_outcome}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── LEARNING LOOP ─────────────────────────────────────────────────────────────
-
-type Phase = "loading" | "diagnostic" | "overview" | "content" | "question" | "feedback" | "completed";
-
-function LearningLoop({ studentId, unitId, topic, onDone }: {
-  studentId: string; unitId: string; topic: string; onDone: () => void;
-}) {
-  const [phase, setPhase] = useState<Phase>("loading");
+  const [loading, setLoading] = useState(true);
   const [activity, setActivity] = useState<any>(null);
+  const [payload, setPayload] = useState<any>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [result, setResult] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [diagnosticDone, setDiagnosticDone] = useState(false);
-  const ttsGuard = useRef(false);
+  const [feedback, setFeedback] = useState<any>(null);
 
-  async function loadNext() {
-    stopSpeech();
-    setPhase("loading");
+  const switchCount = useRef(0);
+  const startTime = useRef(Date.now());
+
+  useEffect(() => {
+    if (!unitId) {
+      navigate("/learning-modules");
+      return;
+    }
+    fetchNext();
+
+    return () => {
+      stopTTS();
+    };
+  }, []);
+
+  async function fetchNext() {
+    stopTTS();
+    setLoading(true);
     setSelected(null);
-    setResult(null);
-    ttsGuard.current = false;
+    setFeedback(null);
+    switchCount.current = 0;
+    startTime.current = Date.now();
 
     try {
-      const data = await studentApi.getNextActivity(studentId, unitId);
-      setActivity(data);
+      const res = await studentApi.getNextActivity(studentId, unitId);
+      setActivity(res);
+      setPayload(res.activity_payload);
 
-      if (data.completed) {
-        setPhase("completed");
-        speak(data.message || "All concepts mastered!");
+      if (res.completed) {
+        speakIndianSpaced(`Congratulations ${studentName}! You have successfully mastered this entire module.`);
         return;
       }
 
-      // 1. Check for entry diagnostic
-      if (!diagnosticDone && data.diagnostic_question) {
-        setPhase("diagnostic");
-        return;
+      // Voice the dynamic intervention or question
+      if (res.activity_payload) {
+        const p = res.activity_payload;
+        if (p.analogy_text) {
+          speakIndianSpaced(`Let us break this down with an analogy. ${p.analogy_text}. Now, consider this question: ${p.question}`);
+        } else if (p.hint) {
+          speakIndianSpaced(`Here is a helpful clue: ${p.hint}. Now, evaluate the question: ${p.question}`);
+        } else {
+          speakIndianSpaced(p.question);
+        }
       }
-
-      // 2. Route straight to question if content_type is null (re-attempt or challenge)
-      if (data.content_type === null) {
-        setPhase("question");
-      } else if (data.consecutive_wrong === 0 && data.overview && data.std_question_index === 0) {
-        setPhase("overview");
-      } else {
-        setPhase("content");
-      }
-    } catch (e: any) {
-      alert("Activity load error: " + (e?.message || ""));
+    } catch (e) {
+      console.error("Error loading activity:", e);
+    } finally {
+      setLoading(false);
     }
   }
 
-  useEffect(() => { loadNext(); }, []);
-
-  // Voice narration triggers
-  useEffect(() => {
-    if (!activity || ttsGuard.current) return;
-    if (phase === "overview") {
-      ttsGuard.current = true;
-      speak(`Overview for ${activity.subtopic_name}. ${activity.overview?.what_we_study || ""}`);
-    } else if (phase === "content") {
-      ttsGuard.current = true;
-      speak(activity.content?.text || "");
-    } else if (phase === "question") {
-      ttsGuard.current = true;
-      const hintMsg = (activity.show_hint && activity.hint && activity.consecutive_wrong >= 1)
-        ? " Hint: " + activity.hint
-        : "";
-      speak((activity.question?.text || "") + hintMsg);
+  function handleAnswer(idx: number) {
+    if (selected !== null && selected !== idx) {
+      switchCount.current += 1;
     }
-  }, [phase, activity]);
+    setSelected(idx);
 
-  async function handleDiagnosticSubmit() {
-    if (selected === null || !activity?.diagnostic_question) return;
-    setSubmitting(true);
-    try {
-      const isCorrect = selected === activity.diagnostic_question.correct;
-      await studentApi.submitDiagnostic({
-        student_id: studentId,
-        unit_id: unitId,
-        answers: [{ subtopic_id: activity.subtopic_id, correct: isCorrect }],
-      });
-      setDiagnosticDone(true);
-      setPhase(activity.overview ? "overview" : "content");
-    } finally {
-      setSubmitting(false);
-      setSelected(null);
+    if (payload?.options?.[idx]) {
+      speakIndianSpaced(payload.options[idx]);
     }
   }
 
   async function handleSubmit() {
-    if (selected === null || !activity) return;
+    if (selected === null || submitting) return;
     setSubmitting(true);
+    stopTTS();
+
+    const latency = Date.now() - startTime.current;
+    const isCorrect = selected === payload.correct_index;
+
     try {
       const res = await studentApi.submitAnswer({
         student_id: studentId,
+        unit_id: unitId,
         subtopic_id: activity.subtopic_id,
+        subtopic_name: activity.subtopic_name,
         selected_option: selected,
-        question_type: activity.question_type || "question",
-        hint_used: Boolean(activity.show_hint),
+        correct_option: payload.correct_index,
+        correct: isCorrect,
+        response_time_ms: latency,
+        option_switch_count: switchCount.current,
       });
 
-      setResult(res);
+      if (res.completed) {
+        setFeedback(null);
+        setActivity((prev: any) => ({ ...prev, completed: true }));
+        speakIndianSpaced(`Module completed! You navigated the entire curriculum tree and reached full mastery.`);
+        return;
+      }
+
+      setFeedback({
+        correct: res.correct,
+        p_l: res.p_l,
+        delta: res.mastery_delta,
+        score: res.mastery_score,
+        state: res.cognitive_state,
+        action: res.pedagogical_action,
+        explanation: payload.explanation,
+      });
+
       setActivity((prev: any) => ({
         ...prev,
+        subtopic_name: res.subtopic_name || prev.subtopic_name,
+        cognitive_state: res.cognitive_state,
         mastery_score: res.mastery_score,
-        consecutive_wrong: res.correct ? 0 : (prev.consecutive_wrong + 1),
-        can_skip: res.can_skip,
+        p_l: res.p_l,
       }));
 
-      speak(res.correct ? "Correct! " + (res.explanation || "") : "Not quite. " + (res.explanation || ""));
-      setPhase("feedback");
-    } catch {
-      alert("Submission error. Ensure backend is running.");
+      setPayload(res.activity_payload);
+
+      // Auditory Feedback
+      if (res.correct) {
+        speakIndianSpaced(`Correct! Well reasoned. ${payload.explanation || ""}`);
+      } else {
+        speakIndianSpaced(`Not quite. Let us examine why: ${payload.explanation || ""}`);
+      }
+    } catch (e) {
+      console.error("Submission failed:", e);
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (phase === "loading") {
-    return (
-      <Screen topic={topic} onBack={onDone}>
-        <div style={{ textAlign: "center", paddingTop: 80, fontFamily: P, color: MUTED }}>
-          Loading your next activity…
-        </div>
-      </Screen>
-    );
-  }
-
-  const content = activity?.content;
-  const question = activity?.question;
-  const mastery = activity?.mastery_score ?? 0;
-  const cWrong = activity?.consecutive_wrong ?? 0;
+  const getStateColor = (state: string) => {
+    switch (state) {
+      case "MASTERED": return "#16a34a";
+      case "OSCILLATING": return "#d97706";
+      case "STRUGGLING": return "#dc2626";
+      default: return BLUE;
+    }
+  };
 
   return (
-    <Screen topic={topic} onBack={onDone}>
-      {/* Header bar */}
-      <div style={{ background: WHITE, borderRadius: 14, padding: "12px 18px", border: `1px solid ${BORDER}`, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <div>
-          <p style={{ fontWeight: 800, color: TEXT, fontSize: 16, margin: 0 }}>{activity?.subtopic_name}</p>
-          {cWrong > 0 && <span style={{ fontSize: 12, color: "#d97706" }}>Attempt {cWrong + 1}</span>}
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <span style={{ fontWeight: 900, color: BLUE, fontSize: 20 }}>{mastery}</span>
-          <span style={{ fontSize: 10, color: MUTED, display: "block" }}>MASTERY</span>
-        </div>
-      </div>
+    <div style={{ minHeight: "100vh", background: BG, fontFamily: P, padding: "28px 16px" }}>
+      <div style={{ maxWidth: 680, margin: "0 auto" }}>
 
-      {/* ── 1. DIAGNOSTIC CARD ── */}
-      {phase === "diagnostic" && activity?.diagnostic_question && (
-        <div style={{ background: WHITE, borderRadius: 20, padding: 24, border: `1px solid ${BORDER}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <span style={{ color: BLUE, fontSize: 11, fontWeight: 800, textTransform: "uppercase" }}>🎯 Diagnostic Check</span>
-            <DifficultyBadge difficulty="easy" />
+        {/* Navigation & Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <button
+            onClick={() => {
+              stopTTS();
+              navigate("/learning-modules");
+            }}
+            style={{ background: "none", border: "none", color: BLUE, fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+          >
+            ← Back to Modules
+          </button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={() => {
+                if (payload?.question) {
+                  speakIndianSpaced(payload.analogy_text ? `${payload.analogy_text}. Question: ${payload.question}` : payload.question);
+                }
+              }}
+              style={{
+                background: LIGHT_BLUE,
+                border: `1px solid ${BORDER}`,
+                color: BLUE,
+                borderRadius: 10,
+                padding: "6px 12px",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              🔊 Read Aloud
+            </button>
+            <span style={{ fontSize: 12, color: MUTED }}>Learner: <strong>{studentName}</strong></span>
           </div>
-          <p style={{ fontFamily: P, fontSize: 17, fontWeight: 700, color: TEXT, marginBottom: 16 }}>
-            {activity.diagnostic_question.text}
-          </p>
-          <div style={{ display: "grid", gap: 10 }}>
-            {activity.diagnostic_question.options.map((opt: string, i: number) => (
-              <button key={i} onClick={() => setSelected(i)} style={{
-                padding: "14px 16px", borderRadius: 12, border: `2px solid ${selected === i ? BLUE : BORDER}`,
-                background: selected === i ? LIGHT_BLUE : WHITE, textAlign: "left", cursor: "pointer", fontFamily: P
-              }}>
-                {opt}
-              </button>
-            ))}
+        </div>
+
+        {/* Dynamic Governor Monitor Banner */}
+        <div
+          style={{
+            background: WHITE,
+            borderRadius: 20,
+            padding: "18px 24px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            border: `1px solid ${BORDER}`,
+            marginBottom: 20,
+            boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
+          }}
+        >
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: TEXT }}>{activity?.subtopic_name || "Learning Concept"}</h3>
+              <span
+                style={{
+                  background: `${getStateColor(activity?.cognitive_state || "PROGRESSING")}15`,
+                  color: getStateColor(activity?.cognitive_state || "PROGRESSING"),
+                  padding: "4px 10px",
+                  borderRadius: 12,
+                  fontSize: 11,
+                  fontWeight: 800,
+                }}
+              >
+                {activity?.cognitive_state || "INITIALIZING"}
+              </span>
+            </div>
+            <span style={{ fontSize: 13, color: MUTED }}>
+              Governor Action: <strong>{payload?.tier || "EVALUATING"}</strong>
+            </span>
           </div>
-          <PrimaryBtn onClick={handleDiagnosticSubmit} disabled={selected === null || submitting}>
-            Confirm & Start Lesson →
-          </PrimaryBtn>
-        </div>
-      )}
-
-      {/* ── 2. SEPARATE OVERVIEW CARD ── */}
-      {phase === "overview" && activity?.overview && (
-        <div>
-          <OverviewCard overview={activity.overview} />
-          <PrimaryBtn onClick={() => setPhase("content")}>
-            Begin Lesson →
-          </PrimaryBtn>
-        </div>
-      )}
-
-      {/* ── 3. LESSON CARD ── */}
-      {phase === "content" && content && (
-        <div style={{ background: WHITE, borderRadius: 20, padding: "26px 22px", border: `1px solid ${BORDER}` }}>
-          <p style={{ fontFamily: P, fontSize: 16, fontWeight: 500, color: TEXT, lineHeight: 1.8, whiteSpace: "pre-line" }}>
-            {content.text}
-          </p>
-
-          {content.code_snippet && (
-            <div style={{ background: "#030712", borderRadius: 12, padding: "14px 18px", margin: "16px 0", overflowX: "auto" }}>
-              <pre style={{ fontFamily: "monospace", fontSize: 14, color: "#38bdf8", margin: 0 }}>
-                {content.code_snippet}
-              </pre>
-            </div>
-          )}
-
-          {content.takeaway && (
-            <div style={{ background: LIGHT_BLUE, borderRadius: 10, padding: "10px 14px", color: BLUE, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
-              💡 Takeaway: {content.takeaway}
-            </div>
-          )}
 
           <div style={{ textAlign: "right" }}>
-            <SpeakBtn text={content.text} />
+            <div style={{ fontSize: 24, fontWeight: 900, color: BLUE }}>
+              {activity?.mastery_score ?? 30}%
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 800, color: MUTED, letterSpacing: 0.5 }}>P(L) MASTERY</span>
           </div>
-
-          <PrimaryBtn onClick={() => { ttsGuard.current = false; setPhase("question"); }}>
-            I'm ready — answer question →
-          </PrimaryBtn>
         </div>
-      )}
 
-      {/* ── 4. QUESTION PHASE ── */}
-      {phase === "question" && question && (
-        <div>
-          <div style={{ background: WHITE, borderRadius: 20, padding: 24, border: `1px solid ${BORDER}`, marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: MUTED }}>
-                {activity.question_type === "hard_question" ? "🔥 Challenge" : "Question"}
-              </span>
-              <DifficultyBadge difficulty={activity.difficulty || question.difficulty} />
+        {/* Completion Card */}
+        {activity?.completed ? (
+          <div style={{ background: WHITE, borderRadius: 22, padding: 40, textAlign: "center", border: `1px solid ${BORDER}` }}>
+            <div style={{ fontSize: 50, marginBottom: 12 }}>🎓</div>
+            <h2 style={{ color: TEXT, margin: "0 0 8px" }}>Module Completely Mastered!</h2>
+            <p style={{ color: MUTED, fontSize: 15, marginBottom: 24 }}>
+              You navigated the full curriculum DAG, demonstrated mastery across all concept nodes, and resolved all interventions.
+            </p>
+            <button
+              onClick={() => navigate("/learning-modules")}
+              style={{
+                padding: "14px 28px",
+                borderRadius: 14,
+                border: "none",
+                background: BLUE,
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 15,
+                cursor: "pointer",
+              }}
+            >
+              Select Another Module →
+            </button>
+          </div>
+        ) : loading ? (
+          <div style={{ background: WHITE, borderRadius: 20, padding: 40, textAlign: "center", border: `1px solid ${BORDER}`, color: MUTED }}>
+            Synthesizing adaptive instruction...
+          </div>
+        ) : feedback ? (
+          /* Feedback Card */
+          <div style={{ background: WHITE, borderRadius: 22, padding: 32, textAlign: "center", border: `1px solid ${BORDER}` }}>
+            <div style={{ fontSize: 44, marginBottom: 10 }}>{feedback.correct ? "🌟" : "💡"}</div>
+            <h2 style={{ margin: "0 0 8px", color: feedback.correct ? "#16a34a" : "#d97706" }}>
+              {feedback.correct ? "Correct! Concept Strengthened" : "Misconception Detected"}
+            </h2>
+            <p style={{ color: TEXT, fontSize: 15, lineHeight: 1.5, margin: "0 0 16px" }}>{feedback.explanation}</p>
+
+            {/* Pedagogical Intervention Summary */}
+            <div style={{ background: BG, padding: "16px 20px", borderRadius: 16, textAlign: "left", marginBottom: 24, border: `1px solid ${BORDER}` }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: MUTED, marginBottom: 6 }}>PEDAGOGICAL INTERVENTION LOG:</div>
+              <div style={{ fontSize: 14, color: TEXT, fontWeight: 600 }}>
+                • Transition State: <strong style={{ color: getStateColor(feedback.state) }}>{feedback.state}</strong>
+              </div>
+              <div style={{ fontSize: 14, color: TEXT, fontWeight: 600 }}>
+                • Governor Strategy: <strong>{feedback.action}</strong>
+              </div>
+              <div style={{ fontSize: 14, color: TEXT, fontWeight: 600 }}>
+                • Updated Probability of Mastery: <strong>{feedback.p_l} ({feedback.delta >= 0 ? `+${feedback.delta}%` : `${feedback.delta}%`})</strong>
+              </div>
             </div>
 
-            <p style={{ fontFamily: P, fontSize: 17, fontWeight: 700, color: TEXT, lineHeight: 1.6, margin: "0 0 10px", whiteSpace: "pre-line" }}>
-              {question.text}
-            </p>
-            <SpeakBtn text={question.text} />
+            <button
+              onClick={() => {
+                setFeedback(null);
+                setSelected(null);
+                startTime.current = Date.now();
+                switchCount.current = 0;
+                if (payload?.question) {
+                  speakIndianSpaced(payload.analogy_text ? `${payload.analogy_text}. Question: ${payload.question}` : payload.question);
+                }
+              }}
+              style={{
+                width: "100%",
+                padding: "15px 0",
+                borderRadius: 14,
+                border: "none",
+                background: BLUE,
+                color: WHITE,
+                fontSize: 16,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Receive Next Adaptive Step →
+            </button>
+          </div>
+        ) : (
+          /* Active Question & Interventions */
+          <div style={{ background: WHITE, borderRadius: 22, padding: 30, border: `1px solid ${BORDER}` }}>
 
-            {/* Hint only displayed after a failed attempt */}
-            {activity.show_hint && activity.hint && cWrong >= 1 && (
-              <div style={{ marginTop: 14, padding: "12px 16px", borderRadius: 12, background: "#fffbeb", border: "1px solid #fde68a", color: "#d97706", display: "flex", gap: 8, fontSize: 14 }}>
-                <span>💡</span><span>{activity.hint}</span>
+            {/* Analogy Box if Struggling */}
+            {payload?.analogy_text && (
+              <div style={{ background: "#fefce8", border: "1px solid #fef08a", borderRadius: 16, padding: "16px 20px", marginBottom: 20 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: "#854d0e", display: "block", marginBottom: 4 }}>
+                  STEP-DOWN ANALOGY SCAFFOLD
+                </span>
+                <p style={{ margin: 0, fontSize: 14, color: "#713f12", lineHeight: 1.5 }}>
+                  {payload.analogy_text}
+                </p>
               </div>
             )}
-          </div>
 
-          <div style={{ display: "grid", gap: 10, marginBottom: 8 }}>
-            {question.options?.map((opt: string, i: number) => (
-              <button key={i} onClick={() => { setSelected(i); speak(opt); }} style={{
-                padding: "15px 18px", borderRadius: 14, border: `2px solid ${selected === i ? BLUE : BORDER}`,
-                background: selected === i ? LIGHT_BLUE : WHITE, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 12
-              }}>
-                <span style={{ width: 32, height: 32, borderRadius: "50%", background: selected === i ? BLUE : BORDER, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, color: selected === i ? "#fff" : MUTED }}>
-                  {["A", "B", "C", "D"][i]}
+            {/* Hint Box if Oscillating */}
+            {payload?.hint && (
+              <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 16, padding: "16px 20px", marginBottom: 20 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: "#065f46", display: "block", marginBottom: 4 }}>
+                  SOCRATIC ELIMINATION CLUE
                 </span>
-                <span style={{ fontFamily: P, fontSize: 16, color: selected === i ? TEXT : "#475569" }}>{opt}</span>
-              </button>
-            ))}
-          </div>
+                <p style={{ margin: 0, fontSize: 14, color: "#047857", lineHeight: 1.5 }}>
+                  {payload.hint}
+                </p>
+              </div>
+            )}
 
-          <PrimaryBtn onClick={handleSubmit} disabled={selected === null || submitting}>
-            {submitting ? "Checking…" : "Submit Answer ✓"}
-          </PrimaryBtn>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: BLUE }}>{payload?.badge || "ACTIVE QUESTION"}</span>
+              <span style={{ fontSize: 12, color: MUTED }}>Switches: {switchCount.current}</span>
+            </div>
 
-          {/* Skip option available for hard questions or persistent loop */}
-          {(activity.can_skip || activity.question_type === "hard_question") && (
-            <button onClick={loadNext} style={{
-              width: "100%", marginTop: 10, padding: "12px 0", borderRadius: 14,
-              border: `1px solid ${BORDER}`, background: "transparent", color: MUTED,
-              fontFamily: P, fontWeight: 600, fontSize: 14, cursor: "pointer"
-            }}>
-              Next Topic →
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ── 5. FEEDBACK PHASE ── */}
-      {phase === "feedback" && result && (
-        <div style={{ background: WHITE, borderRadius: 20, padding: 24, border: `1px solid ${BORDER}`, textAlign: "center" }}>
-          <div style={{ fontSize: 56, marginBottom: 8 }}>{result.correct ? "✅" : "❌"}</div>
-          <h3 style={{ fontFamily: P, fontWeight: 900, fontSize: 22, color: result.correct ? "#16a34a" : "#dc2626", margin: "0 0 8px" }}>
-            {result.correct ? "Correct!" : "Not quite!"}
-          </h3>
-          {result.explanation && (
-            <p style={{ fontFamily: P, color: "#334155", fontSize: 14, lineHeight: 1.7, marginBottom: 14 }}>
-              {result.explanation}
+            <p style={{ fontSize: 17, fontWeight: 700, color: TEXT, margin: "0 0 24px", lineHeight: 1.5 }}>
+              {payload?.question}
             </p>
-          )}
 
-          <PrimaryBtn onClick={loadNext} color={result.correct ? "#16a34a" : BLUE}>
-            {result.just_mastered ? "Next Concept 🚀" : "Continue →"}
-          </PrimaryBtn>
+            {/* Options */}
+            <div style={{ display: "grid", gap: 12, marginBottom: 26 }}>
+              {payload?.options?.map((opt: string, idx: number) => (
+                <button
+                  key={idx}
+                  onClick={() => handleAnswer(idx)}
+                  style={{
+                    padding: "16px 20px",
+                    borderRadius: 14,
+                    border: `2px solid ${selected === idx ? BLUE : BORDER}`,
+                    background: selected === idx ? LIGHT_BLUE : WHITE,
+                    textAlign: "left",
+                    cursor: "pointer",
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: selected === idx ? BLUE : TEXT,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span style={{ marginRight: 10, color: MUTED, fontWeight: 800 }}>
+                    {["A", "B", "C", "D"][idx]}.
+                  </span>
+                  {opt}
+                </button>
+              ))}
+            </div>
 
-          {/* Option to skip forward if failed on hard question or with hints */}
-          {(result.can_skip || activity.question_type === "hard_question") && !result.correct && (
-            <button onClick={loadNext} style={{
-              width: "100%", marginTop: 10, padding: "12px 0", borderRadius: 14,
-              border: `1px solid ${BORDER}`, background: "transparent", color: MUTED,
-              fontFamily: P, fontWeight: 600, fontSize: 14, cursor: "pointer"
-            }}>
-              Next Topic →
+            <button
+              onClick={handleSubmit}
+              disabled={selected === null || submitting}
+              style={{
+                width: "100%",
+                padding: "16px 0",
+                borderRadius: 14,
+                border: "none",
+                background: selected === null ? "#cbd5e1" : BLUE,
+                color: WHITE,
+                fontSize: 16,
+                fontWeight: 700,
+                cursor: selected === null ? "default" : "pointer",
+              }}
+            >
+              {submitting ? "Evaluating via Governor..." : "Submit Answer & Evaluate ✓"}
             </button>
-          )}
-        </div>
-      )}
-
-      {/* ── 6. COMPLETED PHASE ── */}
-      {phase === "completed" && (
-        <div style={{ background: WHITE, borderRadius: 20, padding: 36, textAlign: "center", border: `1px solid ${BORDER}` }}>
-          <div style={{ fontSize: 60, marginBottom: 12 }}>🎉</div>
-          <h2 style={{ fontFamily: P, fontWeight: 900, color: "#16a34a", fontSize: 26 }}>Unit Mastered!</h2>
-          <p style={{ fontFamily: P, color: MUTED, fontSize: 15 }}>{activity.message}</p>
-          <PrimaryBtn onClick={onDone}>Back to Topics</PrimaryBtn>
-        </div>
-      )}
-    </Screen>
-  );
-}
-
-function Screen({ children, topic, onBack }: { children: React.ReactNode; topic?: string; onBack?: () => void }) {
-  return (
-    <div style={{ minHeight: "100vh", background: BG }}>
-      <div style={{ background: WHITE, borderBottom: `1px solid ${BORDER}`, padding: "14px 24px", display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontFamily: P, fontWeight: 700, color: TEXT, fontSize: 15 }}>{topic || "Adaptive Learning"}</span>
-        {onBack && (
-          <button onClick={onBack} style={{ marginLeft: "auto", border: `1px solid ${BORDER}`, background: WHITE, borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontFamily: P, fontSize: 13, color: MUTED }}>
-            ← Topics
-          </button>
-        )}
-      </div>
-      <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 20px 40px" }}>{children}</div>
-    </div>
-  );
-}
-
-type SView = "login" | "topics" | "learning";
-
-export default function StudentPage() {
-  const [view, setView] = useState<SView>(() => sessionStorage.getItem("student_id") ? "topics" : "login");
-  const [studentId, setStudentId] = useState(() => sessionStorage.getItem("student_id") || "");
-  const [unitId, setUnitId] = useState("");
-  const [topic, setTopic] = useState("");
-
-  function onLogin(name: string) {
-    sessionStorage.setItem("student_id", name);
-    setStudentId(name);
-    setView("topics");
-  }
-
-  if (view === "login") return <LoginScreen onLogin={onLogin} />;
-  if (view === "topics") return <TopicSelect studentId={studentId} onSelect={(uid, t) => { setUnitId(uid); setTopic(t); setView("learning"); }} />;
-  if (view === "learning") return <LearningLoop studentId={studentId} unitId={unitId} topic={topic} onDone={() => setView("topics")} />;
-  return null;
-}
-
-function LoginScreen({ onLogin }: { onLogin: (name: string) => void }) {
-  const [name, setName] = useState("");
-  useEffect(() => { speak("Welcome! What is your name?"); }, []);
-  return (
-    <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ background: WHITE, borderRadius: 24, padding: 48, maxWidth: 400, width: "100%", textAlign: "center", border: `1px solid ${BORDER}` }}>
-        <h1 style={{ fontFamily: P, fontWeight: 800, color: TEXT, fontSize: 26, margin: "0 0 8px" }}>Welcome!</h1>
-        <p style={{ fontFamily: P, color: MUTED, fontSize: 15, margin: "0 0 24px" }}>What is your name?</p>
-        <input
-          value={name} onChange={e => setName(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && name.trim() && onLogin(name.trim())}
-          placeholder="Type your name here" autoFocus
-          style={{ width: "100%", padding: 14, borderRadius: 12, boxSizing: "border-box", background: "#f8fbff", border: `1.5px solid ${BORDER}`, color: TEXT, fontFamily: P, fontSize: 18, textAlign: "center" }}
-        />
-        <PrimaryBtn onClick={() => name.trim() && onLogin(name.trim())} disabled={!name.trim()}>
-          Let's Learn! 🚀
-        </PrimaryBtn>
-      </div>
-    </div>
-  );
-}
-
-function TopicSelect({ studentId, onSelect }: { studentId: string; onSelect: (unitId: string, topic: string) => void }) {
-  const [topics, setTopics] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    studentApi.getTopics()
-      .then(d => {
-        const ready = (d.topics as any[]).filter((t: any) => t.approved_subtopics > 0);
-        setTopics(ready);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div style={{ minHeight: "100vh", background: BG, padding: "40px 24px" }}>
-      <div style={{ maxWidth: 560, margin: "0 auto" }}>
-        <h1 style={{ fontFamily: P, fontWeight: 800, color: TEXT, fontSize: 26, textAlign: "center", marginBottom: 24 }}>
-          Choose a Topic, {studentId}!
-        </h1>
-        {loading ? <p style={{ textAlign: "center", color: MUTED }}>Loading topics…</p> : (
-          <div style={{ display: "grid", gap: 14 }}>
-            {topics.map((t: any) => (
-              <button key={t.unit_id} onClick={() => onSelect(t.unit_id, t.topic)} style={{
-                background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 18, padding: 20, textAlign: "left", cursor: "pointer"
-              }}>
-                <div style={{ fontFamily: P, fontWeight: 800, color: TEXT, fontSize: 18 }}>{t.topic}</div>
-                <div style={{ fontFamily: P, color: MUTED, fontSize: 13, marginTop: 4 }}>{t.approved_subtopics} lessons available</div>
-              </button>
-            ))}
           </div>
         )}
+
       </div>
     </div>
   );
