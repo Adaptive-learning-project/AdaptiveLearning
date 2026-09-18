@@ -52,10 +52,13 @@ app = FastAPI(title="Adaptive Psycho-Motor Cognitive Engine", version="4.0.0")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://adaptive-learning-inky.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1080,7 +1083,7 @@ Pedagogical Rules:
         # Safe deterministic fallback
         return {
             "type": "question",
-            "badge": f"{state} 🎯",
+            "badge": f"{state} ",
             "tier": "ADAPTIVE PRACTICE",
             "explanation": f"Concept: {concept}. Ensure function signatures differ in parameters.",
             "question": f"Regarding {concept}, how does the compiler determine which function to invoke?",
