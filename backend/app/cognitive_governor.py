@@ -1,126 +1,109 @@
 """
 backend/app/cognitive_governor.py
 Deterministic Cognitive Governor & Pedagogical Decision Engine
+Adapted for Early Childhood / IDD Learners (FACP Milestones)
 """
 
+from typing import Optional
 from app.schemas import PedagogicalDecision, CognitiveState, PedagogicalAction
 
 
 class CognitiveGovernor:
-    @staticmethod
+    # Tuned thresholds for children aged 4-7 on 2-choice touch canvases
+    MASTERY_THRESHOLD: float = 0.80              # Aligned to FACP 80% advancement criteria
+    STRUGGLE_P_L_CEILING: float = 0.25           # Severe difficulty indicator
+    HESITATION_LATENCY_MS: int = 12000          # 12s dwell time indicates processing hesitation
+    SWITCH_THRESHOLD: int = 2                    # 2+ touches indicate oscillation/indecision
+
+    @classmethod
     def diagnose_state(
+            cls,
             p_l: float,
             is_correct: bool,
             consecutive_wrong: int,
             response_time_ms: int,
             option_switch_count: int,
-            current_difficulty: int
+            total_attempts: int = 0,  # add attempt check
     ) -> CognitiveState:
-        # Check Mastery
-        if p_l >= 0.85:
+        # 1. Check Mastery
+        if p_l >= cls.MASTERY_THRESHOLD:
             return "MASTERED"
 
-        # Check Oscillation: Repeated failures at medium tier despite prior passes
-        if not is_correct and current_difficulty == 2 and consecutive_wrong >= 2:
-            return "OSCILLATING"
-
-        # Check Overchallenged / Excessive Cognitive Load
-        if not is_correct and current_difficulty >= 2 and (response_time_ms > 30000 or option_switch_count >= 3):
-            return "OVERCHALLENGED"
-
-        # Check General Struggle
-        if not is_correct or consecutive_wrong >= 2:
+        # 2. Check Severe Struggle (Only if they actually made mistakes)
+        if consecutive_wrong >= 2 or (total_attempts > 0 and not is_correct and p_l < cls.STRUGGLE_P_L_CEILING):
             return "STRUGGLING"
 
+        # 3. Check Hesitation / Indecision
+        if option_switch_count >= cls.SWITCH_THRESHOLD or response_time_ms > cls.HESITATION_LATENCY_MS:
+            return "OSCILLATING"
+
+        # 4. Default baseline state for new and progressing learners
         return "LEARNING"
 
-    @staticmethod
+    @classmethod
     def decide_action(
-            concept: str,
-            state: CognitiveState,
-            p_l: float,
-            consecutive_wrong: int,
-            hints_used: int,
-            current_difficulty: int,
-            error_tag: str = "general_error"
+        cls,
+        concept: str,
+        state: CognitiveState,
+        p_l: float,
+        target_id: Optional[str] = None,
     ) -> PedagogicalDecision:
         """
-        Determines the smallest intervention necessary based on the diagnostic state.
+        Determines the assistive intervention based on the diagnosed state.
+        Translates into Errorless Learning or Visual Cueing.
         """
         if state == "MASTERED":
             return PedagogicalDecision(
                 concept=concept,
-                action="hard_transfer",
-                difficulty=3,
+                action="ADVANCE_CONCEPT_NODE",
                 cognitive_state=state,
-                intervention_goal="VERIFY_DEEP_TRANSFER",
-                specific_error="None",
-                constraints=["complex application scenario", "multi-step inference"]
+                intervention_goal="FACP_CRITERION_ACHIEVED",
+                scaffold_type="PROMOTION",
+                target_id=target_id,
+                constraints=[
+                    "celebratory audio chime",
+                    "advance DAG pointer to next developmental milestone"
+                ]
             )
 
         if state == "OSCILLATING":
             return PedagogicalDecision(
                 concept=concept,
-                action="bridge_rescue",
-                difficulty=current_difficulty,
+                action="HIGHLIGHT_TARGET",
                 cognitive_state=state,
-                intervention_goal="BREAK_OSCILLATION_LOOP",
-                specific_error=error_tag,
-                constraints=["real-world concrete analogy", "avoid syntactic jargon"]
-            )
-
-        if state == "OVERCHALLENGED":
-            return PedagogicalDecision(
-                concept=concept,
-                action="simple_example",
-                difficulty=1,
-                cognitive_state=state,
-                intervention_goal="REDUCE_WORKING_MEMORY_LOAD",
-                specific_error=error_tag,
-                constraints=["minimal visual code snippet", "explicit execution flow"]
+                intervention_goal="CUE_ATTENTION_FOCUS",
+                scaffold_type="HIGHLIGHT_TARGET",
+                target_id=target_id,
+                constraints=[
+                    "soft pulsing border on target",
+                    "re-read directive spoken prompt in unhurried audio"
+                ]
             )
 
         if state == "STRUGGLING":
-            # Minimum intervention hierarchy: Hint -> Example -> Explanation
-            if hints_used == 0:
-                action: PedagogicalAction = "hint"
-                goal = "LOWEST_INTRUSIVE_SCAFFOLD"
-                diff = current_difficulty
-            elif hints_used == 1:
-                action = "simple_example"
-                goal = "GROUND_CONCEPT_CONTEXT"
-                diff = max(1, current_difficulty - 1)
-            else:
-                action = "explanation"
-                goal = "RETEACH_MISUNDERSTOOD_PREMISE"
-                diff = 1
-
             return PedagogicalDecision(
                 concept=concept,
-                action=action,
-                difficulty=diff,
+                action="ELIMINATE_DISTRACTOR",
                 cognitive_state=state,
-                intervention_goal=goal,
-                specific_error=error_tag,
-                constraints=["gentle supportive language", "target specific misconception"]
+                intervention_goal="ERRORLESS_DEESCALATION",
+                scaffold_type="ELIMINATE_DISTRACTOR",
+                target_id=target_id,
+                constraints=[
+                    "hide incorrect distractor entirely",
+                    "render single target to guarantee success and rebuild confidence"
+                ]
             )
 
         # State == LEARNING
-        if p_l < 0.60:
-            return PedagogicalDecision(
-                concept=concept,
-                action="easy_question",
-                difficulty=1,
-                cognitive_state=state,
-                intervention_goal="PRACTICE_CORE_RECALL",
-                constraints=["direct recall", "clear binary distinction"]
-            )
-        else:
-            return PedagogicalDecision(
-                concept=concept,
-                action="medium_question",
-                difficulty=2,
-                cognitive_state=state,
-                intervention_goal="INDEPENDENT_APPLICATION",
-                constraints=["standard code tracing", "no extraneous hints"]
-            )
+        return PedagogicalDecision(
+            concept=concept,
+            action="STANDARD_REINFORCE",
+            cognitive_state=state,
+            intervention_goal="INDEPENDENT_RETRIEVAL",
+            scaffold_type="STANDARD_CHOICE",
+            target_id=target_id,
+            constraints=[
+                "clean dual-choice pictorial canvas",
+                "no visual assistance or distractor suppression"
+            ]
+        )

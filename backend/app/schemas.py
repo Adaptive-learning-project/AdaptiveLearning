@@ -94,49 +94,43 @@ from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-PedagogicalAction = Literal[
-    "explanation",
-    "simple_example",
-    "easy_question",
-    "medium_question",
-    "hard_transfer",
-    "hint",
-    "bridge_rescue",
-    "prerequisite_bridge"
-]
 
 CognitiveState = Literal[
-    "LEARNING",
-    "STRUGGLING",
-    "OVERCHALLENGED",
+    "MASTERED",
     "OSCILLATING",
-    "PREREQUISITE_GAP",
-    "MASTERED"
+    "STRUGGLING",
+    "LEARNING"
+]
+
+PedagogicalAction = Literal[
+    "ADVANCE_CONCEPT_NODE",
+    "HIGHLIGHT_TARGET",
+    "ELIMINATE_DISTRACTOR",
+    "STANDARD_REINFORCE"
 ]
 
 class PedagogicalDecision(BaseModel):
     concept: str
     action: PedagogicalAction
-    difficulty: int
     cognitive_state: CognitiveState
     intervention_goal: str
-    specific_error: Optional[str] = "None"
-    constraints: List[str] = []
+    scaffold_type: str
+    target_id: Optional[str] = None
+    constraints: List[str]
+
+from typing import Optional, List, Dict
+from pydantic import BaseModel
 
 class SubmitAnswerRequest(BaseModel):
     student_id: str
-    unit_id: Optional[str] = None
-    subtopic_id: str
-    subtopic_name: Optional[str] = "General Concept"  # Prevents 422 if omitted
-    selected_option: int
-    correct_option: Optional[int] = None
-    correct: Optional[bool] = None
-    hint_used: bool = False
-    question_type: Optional[str] = "question"
+    unit_id: Optional[str] = "facp_preprimary"
+    subtopic_id: Optional[str] = None
+    subtopic_name: Optional[str] = "Color Identification"
+    correct: bool
     response_time_ms: int = 0
     option_switch_count: int = 0
-    current_difficulty: int = 1
-    recent_errors: List[str] = []
+    active_scaffold: Optional[str] = "NONE"   # "NONE" | "HIGHLIGHT_TARGET" | "ELIMINATE_DISTRACTOR"
+    audio_replay_count: Optional[int] = 0     # Number of times audio prompt was re-triggered
 
 class DiagnosticLog(BaseModel):
     student_id: str
