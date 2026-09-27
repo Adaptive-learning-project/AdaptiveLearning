@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useParams, useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
+import JITVisualActivityGame from "../games/JITVisualActivityGame";
 
 // ─── Style constants ───────────────────────────────────────────────────────────
 const P = "Poppins, sans-serif";
@@ -299,7 +300,12 @@ function ScoreCard({
 }
 
 // ─── Activity Registry ────────────────────────────────────────────────────────
-type GameType = "drag-match" | "tap-match" | "letter-match" | "picture-id";
+type GameType =
+  | "drag-match"
+  | "tap-match"
+  | "letter-match"
+  | "picture-id"
+  | "jit-picture-choice";
 
 interface ActivityConfig {
   title: string;
@@ -358,6 +364,14 @@ const REGISTRY: Record<string, ActivityConfig> = {
     icon: "🖼️",
     totalItems: 4,
     gameType: "picture-id",
+  },
+  "jit-picture-choice": {
+    title: "AI Visual Activity",
+    instruction: "Touch the correct picture!",
+    color: "#1565C0",
+    icon: "🤖",
+    totalItems: 1,
+    gameType: "jit-picture-choice",
   },
   "drag-drop-sorting": {
     title: "Sorting Game",
@@ -1083,6 +1097,9 @@ function GameView({
 
     case "picture-id":
       return <PictureIDGame onScore={onScore} />;
+
+    case "jit-picture-choice":
+      return <JITVisualActivityGame onScore={onScore} />;
 
     case "size-sorting":
       return <SizeSortingGame onScore={onScore} />;

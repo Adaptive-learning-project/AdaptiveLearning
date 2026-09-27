@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router";
-import { studentApi } from "../api/adaptiveApi";
+
+import {
+  jitApi,
+  type JITTeachingContent,
+  type JITVisualActivity,
+} from "../api/adaptiveApi";
 
 const P = "Poppins, sans-serif";
 const BLUE = "#1565c0";
@@ -10,245 +20,655 @@ const BORDER = "#dce8f5";
 const TEXT = "#0d2137";
 const MUTED = "#607d8b";
 const LIGHT_BLUE = "#eaf3ff";
+const SUCCESS = "#16a34a";
+const ERROR = "#dc2626";
+const WARNING_BG = "#fff7ed";
+const WARNING_TEXT = "#c2410c";
 
-// --- NATURAL INDIAN EN-IN SPACED TTS ENGINE ---
-let cachedVoice: SpeechSynthesisVoice | null = null;
+const IMAGE_BASE_PATH = "/learning/objects";
 
-function getIndianVoice(): SpeechSynthesisVoice | null {
-  if (!("speechSynthesis" in window)) return null;
-  if (cachedVoice) return cachedVoice;
+type Phase =
+  | "teach"
+  | "question"
+  | "feedback"
+  | "completed";
 
-  const voices = window.speechSynthesis.getVoices();
-  cachedVoice =
-    voices.find(
-      (v) =>
-        v.lang.replace("_", "-").toLowerCase() === "en-in" ||
-        v.name.toLowerCase().includes("india") ||
-        v.name.toLowerCase().includes("neerja") ||
-        v.name.toLowerCase().includes("ravi") ||
-        v.name.toLowerCase().includes("veena")
-    ) ||
-    voices.find((v) => v.lang.startsWith("en-GB")) ||
-    voices.find((v) => v.lang.startsWith("en")) ||
-    null;
-
-  return cachedVoice;
+interface TeachingVisual {
+  image_key: string;
+  role: string;
 }
 
-if (typeof window !== "undefined" && "speechSynthesis" in window) {
-  window.speechSynthesis.onvoiceschanged = () => {
-    cachedVoice = null;
-    getIndianVoice();
-  };
+interface AdaptiveInfo {
+  subtopic_id: string;
+  subtopic_name?: string;
+  learning_objective: string;
+  difficulty: "easy" | "medium" | "hard";
+  zone?: string;
+  reason?: string;
+  p_l: number;
 }
 
-function speakIndianSpaced(text: string, onEnd?: () => void) {
-  if (!("speechSynthesis" in window)) {
-    onEnd?.();
-    return;
-  }
-
-  window.speechSynthesis.cancel();
-
-  // Spaced cadence formatting to avoid rushing technical jargon
-  const spacedText = text
-    .replace(/([A-Z]{2,})/g, " $1 ") // acronym spacing (e.g. DAG -> D A G)
-    .replace(/([.?!])/g, "$1 ... ")  // natural pause after sentences
-    .replace(/([,:;])/g, "$1 ")       // natural pause after clauses
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const utterance = new SpeechSynthesisUtterance(spacedText);
-  const voice = getIndianVoice();
-  if (voice) utterance.voice = voice;
-
-  utterance.rate = 0.86; // natural Indian cadence
-  utterance.pitch = 1.02;
-
-  if (onEnd) utterance.onend = onEnd;
-  window.speechSynthesis.speak(utterance);
-}
-
-function stopTTS() {
-  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-  }
+interface FeedbackState {
+  correct: boolean;
+  previous_mastery: number;
+  new_mastery: number;
+  status: string;
 }
 
 export default function StudentPage() {
   const navigate = useNavigate();
-  const [studentName] = useState(() => sessionStorage.getItem("student_name") || "Student");
-  const [studentId] = useState(() => sessionStorage.getItem("student_id") || "student_demo");
-  const [unitId] = useState(() => sessionStorage.getItem("unit_id") || "");
 
-  const [loading, setLoading] = useState(true);
-  const [activity, setActivity] = useState<any>(null);
-  const [payload, setPayload] = useState<any>(null);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<any>(null);
+  const [studentName] = useState(
+    () =>
+      sessionStorage.getItem("student_name") ||
+      "Student"
+  );
 
-  const switchCount = useRef(0);
-  const startTime = useRef(Date.now());
+  const [studentId] = useState(
+    () =>
+      sessionStorage.getItem("student_id") ||
+      "student_demo"
+  );
+
+  const [unitId] = useState(
+    () =>
+      sessionStorage.getItem("unit_id") ||
+      ""
+  );
+
+  // ------------------------------------------------------------
+  // Main JIT state
+  // ------------------------------------------------------------
+
+  const [phase, setPhase] =
+    useState<Phase>("teach");
+
+  const [teaching, setTeaching] =
+    useState<JITTeachingContent | null>(null);
+
+  const [question, setQuestion] =
+    useState<JITVisualActivity | null>(null);
+
+  const [questionId, setQuestionId] =
+    useState<string | null>(null);
+
+  const [adaptive, setAdaptive] =
+    useState<AdaptiveInfo | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [selectedImageKey, setSelectedImageKey] =
+    useState<string | null>(null);
+
+  const [answerSubmitting, setAnswerSubmitting] =
+    useState(false);
+
+  const [feedback, setFeedback] =
+    useState<FeedbackState | null>(null);
+
+  const [wrongAttempts, setWrongAttempts] =
+    useState<Record<string, number>>({});
+
+  const [audioReplayCount, setAudioReplayCount] =
+    useState(0);
+
+  const [switchCount, setSwitchCount] =
+    useState(0);
+
+  const startedAt = useRef<number>(
+    Date.now()
+  );
+
+  // ------------------------------------------------------------
+  // TTS
+  // ------------------------------------------------------------
+
+  const speak = useCallback(
+    (text: string) => {
+      if (
+        typeof window === "undefined" ||
+        !("speechSynthesis" in window) ||
+        !text
+      ) {
+        return;
+      }
+
+      try {
+        window.speechSynthesis.cancel();
+
+        const utterance =
+          new SpeechSynthesisUtterance(
+            text
+          );
+
+        utterance.rate = 0.86;
+        utterance.pitch = 1.02;
+        utterance.volume = 1;
+
+        window.speechSynthesis.speak(
+          utterance
+        );
+      } catch (speechError) {
+        console.warn(
+          "Speech synthesis unavailable:",
+          speechError
+        );
+      }
+    },
+    []
+  );
+
+  const stopTTS = useCallback(() => {
+    if (
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window
+    ) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
+
+  // ------------------------------------------------------------
+  // Reset state
+  // ------------------------------------------------------------
+
+  const resetJitState = useCallback(() => {
+    setTeaching(null);
+    setQuestion(null);
+    setQuestionId(null);
+    setSelectedImageKey(null);
+    setAnswerSubmitting(false);
+    setFeedback(null);
+    setWrongAttempts({});
+    setAudioReplayCount(0);
+    setSwitchCount(0);
+
+    startedAt.current = Date.now();
+  }, []);
+
+  // ------------------------------------------------------------
+  // STAGE 1
+  // Backend chooses adaptive context.
+  // LLM generates the teaching.
+  // ------------------------------------------------------------
+
+  const loadTeaching = useCallback(
+    async () => {
+      if (!unitId) {
+        setError(
+          "No learning unit is selected. Please choose a module first."
+        );
+        setLoading(false);
+        return;
+      }
+
+      try {
+        stopTTS();
+        resetJitState();
+
+        setLoading(true);
+        setError(null);
+        setPhase("teach");
+
+        const response =
+          await jitApi.generateTeaching({
+            student_id: studentId,
+            unit_id: unitId,
+          });
+
+        console.log(
+          "FRONTEND -> BACKEND: jit-teaching",
+          {
+            student_id: studentId,
+            unit_id: unitId,
+          }
+        );
+
+        console.log(
+          "BACKEND -> FRONTEND: teaching response",
+          response
+        );
+
+        if (
+          !response?.success ||
+          !response?.teaching
+        ) {
+          throw new Error(
+            "Teaching content was not returned by the backend."
+          );
+        }
+
+        setTeaching(response.teaching);
+
+        if (response.adaptive) {
+          setAdaptive(response.adaptive);
+        }
+
+        startedAt.current = Date.now();
+
+        speak(
+          response.teaching.spoken_teaching
+        );
+      } catch (err) {
+        console.error(
+          "Teaching generation failed:",
+          err
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to generate the teaching content."
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      unitId,
+      studentId,
+      resetJitState,
+      speak,
+      stopTTS,
+    ]
+  );
+
+  // ------------------------------------------------------------
+  // Initial load
+  // ------------------------------------------------------------
 
   useEffect(() => {
-    if (!unitId) {
-      navigate("/learning-modules");
-      return;
-    }
-    fetchNext();
+    void loadTeaching();
 
     return () => {
       stopTTS();
     };
-  }, []);
+  }, [loadTeaching, stopTTS]);
 
-  async function fetchNext() {
-    stopTTS();
-    setLoading(true);
-    setSelected(null);
-    setFeedback(null);
-    switchCount.current = 0;
-    startTime.current = Date.now();
+  // ------------------------------------------------------------
+  // STAGE 2
+  // Student clicks "I Understand".
+  // Backend retrieves stored teaching.
+  // LLM generates the question from what was taught.
+  // ------------------------------------------------------------
 
-    try {
-      const res = await studentApi.getNextActivity(studentId, unitId);
-      setActivity(res);
-      setPayload(res.activity_payload);
-
-      if (res.completed) {
-        speakIndianSpaced(`Congratulations ${studentName}! You have successfully mastered this entire module.`);
-        return;
-      }
-
-      // Voice the dynamic intervention or question
-      if (res.activity_payload) {
-        const p = res.activity_payload;
-        if (p.analogy_text) {
-          speakIndianSpaced(`Let us break this down with an analogy. ${p.analogy_text}. Now, consider this question: ${p.question}`);
-        } else if (p.hint) {
-          speakIndianSpaced(`Here is a helpful clue: ${p.hint}. Now, evaluate the question: ${p.question}`);
-        } else {
-          speakIndianSpaced(p.question);
-        }
-      }
-    } catch (e) {
-      console.error("Error loading activity:", e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function handleAnswer(idx: number) {
-    if (selected !== null && selected !== idx) {
-      switchCount.current += 1;
-    }
-    setSelected(idx);
-
-    if (payload?.options?.[idx]) {
-      speakIndianSpaced(payload.options[idx]);
-    }
-  }
-
-  async function handleSubmit() {
-    if (selected === null || submitting) return;
-    setSubmitting(true);
-    stopTTS();
-
-    const latency = Date.now() - startTime.current;
-    const isCorrect = selected === payload.correct_index;
-
-    try {
-      const res = await studentApi.submitAnswer({
-        student_id: studentId,
-        unit_id: unitId,
-        subtopic_id: activity.subtopic_id,
-        subtopic_name: activity.subtopic_name,
-        selected_option: selected,
-        correct_option: payload.correct_index,
-        correct: isCorrect,
-        response_time_ms: latency,
-        option_switch_count: switchCount.current,
-      });
-
-      if (res.completed) {
+  const handleUnderstand = useCallback(
+    async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        setSelectedImageKey(null);
+        setWrongAttempts({});
         setFeedback(null);
-        setActivity((prev: any) => ({ ...prev, completed: true }));
-        speakIndianSpaced(`Module completed! You navigated the entire curriculum tree and reached full mastery.`);
+        setPhase("question");
+
+        const response =
+          await jitApi.generateQuestion({
+            student_id: studentId,
+            unit_id: unitId,
+            subtopic_id:
+              adaptive?.subtopic_id,
+          });
+
+        console.log(
+          "FRONTEND -> BACKEND: jit-question",
+          {
+            student_id: studentId,
+            unit_id: unitId,
+            subtopic_id:
+              adaptive?.subtopic_id,
+          }
+        );
+
+        console.log(
+          "BACKEND -> FRONTEND: question response",
+          response
+        );
+
+        if (
+          !response?.success ||
+          !response?.activity ||
+          !response?.question_id
+        ) {
+          throw new Error(
+            "Question content was not returned by the backend."
+          );
+        }
+
+        setQuestion(
+          response.activity
+        );
+
+        setQuestionId(
+          response.question_id
+        );
+
+        if (response.adaptive) {
+          setAdaptive(
+            (previous) => ({
+              ...previous,
+              subtopic_id:
+                response.adaptive!.subtopic_id,
+              learning_objective:
+                response.adaptive!
+                  .learning_objective,
+              difficulty:
+                response.adaptive!
+                  .difficulty,
+              p_l:
+                response.adaptive!.p_l,
+            })
+          );
+        }
+
+        startedAt.current = Date.now();
+
+        speak(
+          response.activity.spoken_prompt
+        );
+
+        setPhase("question");
+      } catch (err) {
+        console.error(
+          "Question generation failed:",
+          err
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to generate the question."
+        );
+
+        setPhase("teach");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      studentId,
+      unitId,
+      adaptive?.subtopic_id,
+      speak,
+    ]
+  );
+
+  // ------------------------------------------------------------
+  // Wrong answer fade
+  // Each wrong touch reduces opacity by exactly 20 percentage points:
+  // 0 = 100%
+  // 1 = 80%
+  // 2 = 60%
+  // 3 = 40%
+  // 4 = 20%
+  // 5 = 0%
+  // ------------------------------------------------------------
+
+  function getOpacity(
+    imageKey: string
+  ): number {
+    const attempts =
+      wrongAttempts[imageKey] ?? 0;
+
+    return Math.max(
+      0,
+      1 - attempts * 0.2
+    );
+  }
+
+  function isFadedOut(
+    imageKey: string
+  ): boolean {
+    return (
+      (wrongAttempts[imageKey] ?? 0) >= 5
+    );
+  }
+
+  // ------------------------------------------------------------
+  // STAGE 3
+  // Touch image -> backend answer grading -> BKT.
+  // ------------------------------------------------------------
+
+  const handleImageTouch = useCallback(
+    async (
+      imageKey: string
+    ) => {
+      if (
+        !question ||
+        !questionId ||
+        answerSubmitting ||
+        phase !== "question" ||
+        isFadedOut(imageKey)
+      ) {
         return;
       }
 
-      setFeedback({
-        correct: res.correct,
-        p_l: res.p_l,
-        delta: res.mastery_delta,
-        score: res.mastery_score,
-        state: res.cognitive_state,
-        action: res.pedagogical_action,
-        explanation: payload.explanation,
-      });
-
-      setActivity((prev: any) => ({
-        ...prev,
-        subtopic_name: res.subtopic_name || prev.subtopic_name,
-        cognitive_state: res.cognitive_state,
-        mastery_score: res.mastery_score,
-        p_l: res.p_l,
-      }));
-
-      setPayload(res.activity_payload);
-
-      // Auditory Feedback
-      if (res.correct) {
-        speakIndianSpaced(`Correct! Well reasoned. ${payload.explanation || ""}`);
-      } else {
-        speakIndianSpaced(`Not quite. Let us examine why: ${payload.explanation || ""}`);
+      // Track option switching.
+      if (
+        selectedImageKey &&
+        selectedImageKey !== imageKey
+      ) {
+        setSwitchCount(
+          (previous) => previous + 1
+        );
       }
-    } catch (e) {
-      console.error("Submission failed:", e);
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
-  const getStateColor = (state: string) => {
-    switch (state) {
-      case "MASTERED": return "#16a34a";
-      case "OSCILLATING": return "#d97706";
-      case "STRUGGLING": return "#dc2626";
-      default: return BLUE;
-    }
-  };
+      setSelectedImageKey(imageKey);
+      setAnswerSubmitting(true);
+      setError(null);
+
+      const responseTime =
+        Math.max(
+          0,
+          Date.now() -
+            startedAt.current
+        );
+
+      try {
+        const result =
+          await jitApi.submitAnswer({
+            student_id: studentId,
+            question_id: questionId,
+            answer: imageKey,
+            response_time_ms:
+              responseTime,
+            option_switch_count:
+              switchCount,
+            audio_replay_count:
+              audioReplayCount,
+            active_scaffold: "NONE",
+          });
+
+        console.log(
+          "FRONTEND -> BACKEND: /api/submit",
+          {
+            student_id: studentId,
+            question_id: questionId,
+            answer: imageKey,
+          }
+        );
+
+        console.log(
+          "BACKEND -> FRONTEND: BKT result",
+          result
+        );
+
+        setFeedback({
+          correct: result.correct,
+          previous_mastery:
+            result.previous_mastery,
+          new_mastery:
+            result.new_mastery,
+          status: result.status,
+        });
+
+        if (result.correct) {
+          stopTTS();
+
+          speak(
+            "Correct! Great job."
+          );
+
+          setPhase("feedback");
+          return;
+        }
+
+        // Backend says it is wrong.
+        // Fade the selected image and let the learner try another.
+        setWrongAttempts(
+          (previous) => ({
+            ...previous,
+            [imageKey]:
+              (previous[imageKey] ?? 0) +
+              1,
+          })
+        );
+
+        // Keep the same question active for another attempt.
+        // Only the incorrect picture fades.
+        setSelectedImageKey(null);
+        setPhase("question");
+
+        speak(
+          "Not quite. Try another picture."
+        );
+      } catch (err) {
+        console.error(
+          "Answer submission failed:",
+          err
+        );
+
+        setSelectedImageKey(null);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to evaluate the answer."
+        );
+      } finally {
+        setAnswerSubmitting(false);
+      }
+    },
+    [
+      question,
+      questionId,
+      answerSubmitting,
+      phase,
+      selectedImageKey,
+      switchCount,
+      audioReplayCount,
+      studentId,
+      speak,
+      stopTTS,
+    ]
+  );
+
+  // ------------------------------------------------------------
+  // Header status
+  // ------------------------------------------------------------
+
+  const stateColor =
+    feedback?.correct
+      ? SUCCESS
+      : ERROR;
+
+  const stateLabel =
+    phase === "teach"
+      ? "TEACHING"
+      : phase === "question"
+        ? "ASSESSING"
+        : phase === "feedback"
+          ? "EVALUATED"
+          : "COMPLETED";
+
+  // ------------------------------------------------------------
+  // MAIN UI
+  // ------------------------------------------------------------
 
   return (
-    <div style={{ minHeight: "100vh", background: BG, fontFamily: P, padding: "28px 16px" }}>
-      <div style={{ maxWidth: 680, margin: "0 auto" }}>
-
-        {/* Navigation & Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: BG,
+        fontFamily: P,
+        padding: "28px 16px",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 760,
+          margin: "0 auto",
+        }}
+      >
+        {/* Navigation */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 16,
+            gap: 12,
+          }}
+        >
           <button
+            type="button"
             onClick={() => {
               stopTTS();
-              navigate("/learning-modules");
+              navigate(
+                "/learning-modules"
+              );
             }}
-            style={{ background: "none", border: "none", color: BLUE, fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+            style={{
+              background: "none",
+              border: "none",
+              color: BLUE,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: 13,
+              padding: 0,
+            }}
           >
             ← Back to Modules
           </button>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
             <button
+              type="button"
               onClick={() => {
-                if (payload?.question) {
-                  speakIndianSpaced(payload.analogy_text ? `${payload.analogy_text}. Question: ${payload.question}` : payload.question);
+                const textToSpeak =
+                  phase === "teach"
+                    ? teaching
+                        ?.spoken_teaching
+                    : question
+                        ?.spoken_prompt;
+
+                if (textToSpeak) {
+                  setAudioReplayCount(
+                    (count) =>
+                      count + 1
+                  );
+
+                  speak(textToSpeak);
                 }
               }}
               style={{
-                background: LIGHT_BLUE,
-                border: `1px solid ${BORDER}`,
+                background:
+                  LIGHT_BLUE,
+                border:
+                  `1px solid ${BORDER}`,
                 color: BLUE,
                 borderRadius: 10,
-                padding: "6px 12px",
+                padding:
+                  "7px 12px",
                 fontSize: 12,
                 fontWeight: 700,
                 cursor: "pointer",
@@ -256,213 +676,927 @@ export default function StudentPage() {
             >
               🔊 Read Aloud
             </button>
-            <span style={{ fontSize: 12, color: MUTED }}>Learner: <strong>{studentName}</strong></span>
+
+            <span
+              style={{
+                fontSize: 12,
+                color: MUTED,
+              }}
+            >
+              Learner:{" "}
+              <strong>
+                {studentName}
+              </strong>
+            </span>
           </div>
         </div>
 
-        {/* Dynamic Governor Monitor Banner */}
+        {/* Governor monitor */}
         <div
           style={{
             background: WHITE,
             borderRadius: 20,
-            padding: "18px 24px",
+            padding:
+              "18px 24px",
             display: "flex",
-            justifyContent: "space-between",
+            justifyContent:
+              "space-between",
             alignItems: "center",
-            border: `1px solid ${BORDER}`,
+            border:
+              `1px solid ${BORDER}`,
             marginBottom: 20,
-            boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
+            boxShadow:
+              "0 2px 10px rgba(0,0,0,0.02)",
+            gap: 20,
           }}
         >
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: TEXT }}>{activity?.subtopic_name || "Learning Concept"}</h3>
+            <div
+              style={{
+                display: "flex",
+                alignItems:
+                  "center",
+                gap: 10,
+                marginBottom: 4,
+                flexWrap:
+                  "wrap",
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 800,
+                  color: TEXT,
+                }}
+              >
+                {adaptive
+                  ?.subtopic_name ||
+                  "Learning Concept"}
+              </h3>
+
               <span
                 style={{
-                  background: `${getStateColor(activity?.cognitive_state || "PROGRESSING")}15`,
-                  color: getStateColor(activity?.cognitive_state || "PROGRESSING"),
-                  padding: "4px 10px",
+                  background:
+                    `${BLUE}15`,
+                  color: BLUE,
+                  padding:
+                    "4px 10px",
                   borderRadius: 12,
                   fontSize: 11,
                   fontWeight: 800,
                 }}
               >
-                {activity?.cognitive_state || "INITIALIZING"}
+                {stateLabel}
               </span>
             </div>
-            <span style={{ fontSize: 13, color: MUTED }}>
-              Governor Action: <strong>{payload?.tier || "EVALUATING"}</strong>
+
+            <span
+              style={{
+                fontSize: 13,
+                color: MUTED,
+              }}
+            >
+              Governor Action:{" "}
+              <strong>
+                {adaptive?.reason ||
+                  "EVALUATING"}
+              </strong>
             </span>
           </div>
 
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 24, fontWeight: 900, color: BLUE }}>
-              {activity?.mastery_score ?? 30}%
+          <div
+            style={{
+              textAlign: "right",
+              flexShrink: 0,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 24,
+                fontWeight: 900,
+                color: BLUE,
+              }}
+            >
+              {adaptive
+                ? Math.round(
+                    adaptive.p_l * 100
+                  )
+                : 20}
+              %
             </div>
-            <span style={{ fontSize: 10, fontWeight: 800, color: MUTED, letterSpacing: 0.5 }}>P(L) MASTERY</span>
+
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 800,
+                color: MUTED,
+                letterSpacing: 0.5,
+              }}
+            >
+              P(L) MASTERY
+            </span>
           </div>
         </div>
 
-        {/* Completion Card */}
-        {activity?.completed ? (
-          <div style={{ background: WHITE, borderRadius: 22, padding: 40, textAlign: "center", border: `1px solid ${BORDER}` }}>
-            <div style={{ fontSize: 50, marginBottom: 12 }}>🎓</div>
-            <h2 style={{ color: TEXT, margin: "0 0 8px" }}>Module Completely Mastered!</h2>
-            <p style={{ color: MUTED, fontSize: 15, marginBottom: 24 }}>
-              You navigated the full curriculum DAG, demonstrated mastery across all concept nodes, and resolved all interventions.
-            </p>
-            <button
-              onClick={() => navigate("/learning-modules")}
-              style={{
-                padding: "14px 28px",
-                borderRadius: 14,
-                border: "none",
-                background: BLUE,
-                color: "#fff",
-                fontWeight: 700,
-                fontSize: 15,
-                cursor: "pointer",
-              }}
-            >
-              Select Another Module →
-            </button>
-          </div>
-        ) : loading ? (
-          <div style={{ background: WHITE, borderRadius: 20, padding: 40, textAlign: "center", border: `1px solid ${BORDER}`, color: MUTED }}>
-            Synthesizing adaptive instruction...
-          </div>
-        ) : feedback ? (
-          /* Feedback Card */
-          <div style={{ background: WHITE, borderRadius: 22, padding: 32, textAlign: "center", border: `1px solid ${BORDER}` }}>
-            <div style={{ fontSize: 44, marginBottom: 10 }}>{feedback.correct ? "🌟" : "💡"}</div>
-            <h2 style={{ margin: "0 0 8px", color: feedback.correct ? "#16a34a" : "#d97706" }}>
-              {feedback.correct ? "Correct! Concept Strengthened" : "Misconception Detected"}
-            </h2>
-            <p style={{ color: TEXT, fontSize: 15, lineHeight: 1.5, margin: "0 0 16px" }}>{feedback.explanation}</p>
-
-            {/* Pedagogical Intervention Summary */}
-            <div style={{ background: BG, padding: "16px 20px", borderRadius: 16, textAlign: "left", marginBottom: 24, border: `1px solid ${BORDER}` }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: MUTED, marginBottom: 6 }}>PEDAGOGICAL INTERVENTION LOG:</div>
-              <div style={{ fontSize: 14, color: TEXT, fontWeight: 600 }}>
-                • Transition State: <strong style={{ color: getStateColor(feedback.state) }}>{feedback.state}</strong>
-              </div>
-              <div style={{ fontSize: 14, color: TEXT, fontWeight: 600 }}>
-                • Governor Strategy: <strong>{feedback.action}</strong>
-              </div>
-              <div style={{ fontSize: 14, color: TEXT, fontWeight: 600 }}>
-                • Updated Probability of Mastery: <strong>{feedback.p_l} ({feedback.delta >= 0 ? `+${feedback.delta}%` : `${feedback.delta}%`})</strong>
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                setFeedback(null);
-                setSelected(null);
-                startTime.current = Date.now();
-                switchCount.current = 0;
-                if (payload?.question) {
-                  speakIndianSpaced(payload.analogy_text ? `${payload.analogy_text}. Question: ${payload.question}` : payload.question);
-                }
-              }}
-              style={{
-                width: "100%",
-                padding: "15px 0",
-                borderRadius: 14,
-                border: "none",
-                background: BLUE,
-                color: WHITE,
-                fontSize: 16,
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              Receive Next Adaptive Step →
-            </button>
-          </div>
-        ) : (
-          /* Active Question & Interventions */
-          <div style={{ background: WHITE, borderRadius: 22, padding: 30, border: `1px solid ${BORDER}` }}>
-
-            {/* Analogy Box if Struggling */}
-            {payload?.analogy_text && (
-              <div style={{ background: "#fefce8", border: "1px solid #fef08a", borderRadius: 16, padding: "16px 20px", marginBottom: 20 }}>
-                <span style={{ fontSize: 12, fontWeight: 800, color: "#854d0e", display: "block", marginBottom: 4 }}>
-                  STEP-DOWN ANALOGY SCAFFOLD
-                </span>
-                <p style={{ margin: 0, fontSize: 14, color: "#713f12", lineHeight: 1.5 }}>
-                  {payload.analogy_text}
-                </p>
-              </div>
-            )}
-
-            {/* Hint Box if Oscillating */}
-            {payload?.hint && (
-              <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 16, padding: "16px 20px", marginBottom: 20 }}>
-                <span style={{ fontSize: 12, fontWeight: 800, color: "#065f46", display: "block", marginBottom: 4 }}>
-                  SOCRATIC ELIMINATION CLUE
-                </span>
-                <p style={{ margin: 0, fontSize: 14, color: "#047857", lineHeight: 1.5 }}>
-                  {payload.hint}
-                </p>
-              </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: BLUE }}>{payload?.badge || "ACTIVE QUESTION"}</span>
-              <span style={{ fontSize: 12, color: MUTED }}>Switches: {switchCount.current}</span>
-            </div>
-
-            <p style={{ fontSize: 17, fontWeight: 700, color: TEXT, margin: "0 0 24px", lineHeight: 1.5 }}>
-              {payload?.question}
-            </p>
-
-            {/* Options */}
-            <div style={{ display: "grid", gap: 12, marginBottom: 26 }}>
-              {payload?.options?.map((opt: string, idx: number) => (
-                <button
-                  key={idx}
-                  onClick={() => handleAnswer(idx)}
-                  style={{
-                    padding: "16px 20px",
-                    borderRadius: 14,
-                    border: `2px solid ${selected === idx ? BLUE : BORDER}`,
-                    background: selected === idx ? LIGHT_BLUE : WHITE,
-                    textAlign: "left",
-                    cursor: "pointer",
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: selected === idx ? BLUE : TEXT,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <span style={{ marginRight: 10, color: MUTED, fontWeight: 800 }}>
-                    {["A", "B", "C", "D"][idx]}.
-                  </span>
-                  {opt}
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={handleSubmit}
-              disabled={selected === null || submitting}
-              style={{
-                width: "100%",
-                padding: "16px 0",
-                borderRadius: 14,
-                border: "none",
-                background: selected === null ? "#cbd5e1" : BLUE,
-                color: WHITE,
-                fontSize: 16,
-                fontWeight: 700,
-                cursor: selected === null ? "default" : "pointer",
-              }}
-            >
-              {submitting ? "Evaluating via Governor..." : "Submit Answer & Evaluate ✓"}
-            </button>
+        {/* Backend/LLM errors */}
+        {error && (
+          <div
+            style={{
+              background:
+                "#fff7f7",
+              border:
+                "1px solid #fecaca",
+              borderRadius: 16,
+              padding:
+                "12px 16px",
+              marginBottom: 18,
+              color: ERROR,
+              fontSize: 13,
+              fontWeight: 600,
+              wordBreak:
+                "break-word",
+            }}
+          >
+            {error}
           </div>
         )}
 
+        {/* Loading */}
+        {loading && (
+          <div
+            style={{
+              background:
+                WHITE,
+              borderRadius: 20,
+              padding: 40,
+              textAlign:
+                "center",
+              border:
+                `1px solid ${BORDER}`,
+              color: MUTED,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 42,
+                marginBottom: 10,
+              }}
+            >
+              🧠
+            </div>
+
+            <div
+              style={{
+                fontSize: 17,
+                fontWeight: 800,
+                color: TEXT,
+              }}
+            >
+              {phase ===
+              "question"
+                ? "Creating your question..."
+                : "Teaching you the concept..."}
+            </div>
+
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 13,
+              }}
+            >
+              The adaptive learning engine
+              is preparing your activity.
+            </div>
+          </div>
+        )}
+
+        {/* -----------------------------------------------------
+            STAGE 1 — TEACH
+        ------------------------------------------------------ */}
+        {!loading &&
+          phase === "teach" &&
+          teaching && (
+            <div
+              style={{
+                background:
+                  WHITE,
+                borderRadius: 22,
+                padding: 30,
+                border:
+                  `1px solid ${BORDER}`,
+              }}
+            >
+              <div
+                style={{
+                  textAlign:
+                    "center",
+                  marginBottom: 22,
+                }}
+              >
+                <span
+                  style={{
+                    display:
+                      "inline-flex",
+                    padding:
+                      "7px 12px",
+                    background:
+                      LIGHT_BLUE,
+                    color: BLUE,
+                    borderRadius:
+                      999,
+                    fontSize: 12,
+                    fontWeight: 800,
+                  }}
+                >
+                  📘 FIRST — LEARN
+                </span>
+
+                <h1
+                  style={{
+                    margin:
+                      "14px 0 8px",
+                    color: TEXT,
+                    fontSize: 25,
+                    fontWeight: 800,
+                  }}
+                >
+                  Let&apos;s learn this first
+                </h1>
+
+                <p
+                  style={{
+                    margin: 0,
+                    color: MUTED,
+                    fontSize: 14,
+                  }}
+                >
+                  Look at the pictures and
+                  listen to the explanation.
+                </p>
+              </div>
+
+              {/* LLM teaching text */}
+              <div
+                style={{
+                  background:
+                    LIGHT_BLUE,
+                  border:
+                    `1px solid ${BORDER}`,
+                  borderRadius: 16,
+                  padding:
+                    "18px 20px",
+                  display: "flex",
+                  alignItems:
+                    "flex-start",
+                  gap: 12,
+                  marginBottom: 20,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 25,
+                  }}
+                >
+                  🗣️
+                </div>
+
+                <div
+                  style={{
+                    flex: 1,
+                    color: TEXT,
+                    fontSize: 18,
+                    lineHeight: 1.55,
+                    fontWeight: 700,
+                  }}
+                >
+                  {
+                    teaching.spoken_teaching
+                  }
+                </div>
+
+                <button
+                  type="button"
+                  aria-label="Replay teaching"
+                  onClick={() => {
+                    setAudioReplayCount(
+                      (count) =>
+                        count + 1
+                    );
+
+                    speak(
+                      teaching.spoken_teaching
+                    );
+                  }}
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 12,
+                    border:
+                      `1px solid ${BORDER}`,
+                    background:
+                      WHITE,
+                    color: BLUE,
+                    fontSize: 18,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  🔊
+                </button>
+              </div>
+
+              {/* LLM-selected teaching images */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(210px, 1fr))",
+                  gap: 16,
+                }}
+              >
+                {teaching.visuals.map(
+                  (
+                    visual: TeachingVisual
+                  ) => (
+                    <div
+                      key={
+                        visual.image_key
+                      }
+                      style={{
+                        background:
+                          BG,
+                        border:
+                          `1px solid ${BORDER}`,
+                        borderRadius: 18,
+                        padding: 12,
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: 220,
+                          background:
+                            WHITE,
+                          borderRadius: 14,
+                          display:
+                            "flex",
+                          alignItems:
+                            "center",
+                          justifyContent:
+                            "center",
+                          overflow:
+                            "hidden",
+                        }}
+                      >
+                        <img
+                          src={`${IMAGE_BASE_PATH}/${visual.image_key}.png`}
+                          alt={visual.image_key.replaceAll(
+                            "_",
+                            " "
+                          )}
+                          draggable={
+                            false
+                          }
+                          style={{
+                            width: 190,
+                            height: 190,
+                            objectFit:
+                              "contain",
+                          }}
+                          onError={(
+                            event
+                          ) => {
+                            console.error(
+                              "Teaching image not found:",
+                              visual.image_key
+                            );
+
+                            event.currentTarget.style.opacity =
+                              "0.15";
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: 9,
+                          textAlign:
+                            "center",
+                          color: MUTED,
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {visual.role}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void handleUnderstand();
+                }}
+                style={{
+                  width: "100%",
+                  marginTop: 22,
+                  padding:
+                    "15px 18px",
+                  borderRadius: 14,
+                  border: "none",
+                  background: BLUE,
+                  color: WHITE,
+                  fontFamily: P,
+                  fontSize: 16,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                I Understand → Show Me a Question
+              </button>
+            </div>
+          )}
+
+        {/* -----------------------------------------------------
+            STAGE 2 — IMAGE QUESTION
+        ------------------------------------------------------ */}
+        {!loading &&
+          phase === "question" &&
+          question && (
+            <div
+              style={{
+                background:
+                  WHITE,
+                borderRadius: 22,
+                padding: 30,
+                border:
+                  `1px solid ${BORDER}`,
+              }}
+            >
+              <div
+                style={{
+                  textAlign:
+                    "center",
+                  marginBottom: 22,
+                }}
+              >
+                <span
+                  style={{
+                    display:
+                      "inline-flex",
+                    padding:
+                      "7px 12px",
+                    background:
+                      LIGHT_BLUE,
+                    color: BLUE,
+                    borderRadius:
+                      999,
+                    fontSize: 12,
+                    fontWeight: 800,
+                  }}
+                >
+                  🧩 SECOND — TRY IT
+                </span>
+
+                <div
+                  style={{
+                    fontSize: 40,
+                    marginTop: 10,
+                  }}
+                >
+                  👆
+                </div>
+
+                <h1
+                  style={{
+                    margin:
+                      "6px 0 8px",
+                    color: TEXT,
+                    fontSize: 24,
+                    fontWeight: 800,
+                  }}
+                >
+                  {
+                    question.spoken_prompt
+                  }
+                </h1>
+
+                <p
+                  style={{
+                    margin: 0,
+                    color: MUTED,
+                    fontSize: 14,
+                  }}
+                >
+                  Touch the correct picture.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 18,
+                  maxWidth: 620,
+                  margin:
+                    "0 auto",
+                }}
+              >
+                {question.choices.map(
+                  (choice) => {
+                    const attempts =
+                      wrongAttempts[
+                        choice.image_key
+                      ] ?? 0;
+
+                    const faded =
+                      isFadedOut(
+                        choice.image_key
+                      );
+
+                    const selected =
+                      selectedImageKey ===
+                      choice.image_key;
+
+                    const borderColor =
+                      selected &&
+                      choice.is_correct
+                        ? SUCCESS
+                        : selected
+                          ? ERROR
+                          : BORDER;
+
+                    const background =
+                      selected &&
+                      choice.is_correct
+                        ? "#f0fdf4"
+                        : selected
+                          ? "#fef2f2"
+                          : WHITE;
+
+                    return (
+                      <button
+                        key={
+                          choice.image_key
+                        }
+                        type="button"
+                        disabled={
+                          faded ||
+                          answerSubmitting
+                        }
+                        onClick={() => {
+                          void handleImageTouch(
+                            choice.image_key
+                          );
+                        }}
+                        style={{
+                          border:
+                            `3px solid ${borderColor}`,
+                          background,
+                          borderRadius: 20,
+                          padding: 12,
+                          minHeight: 280,
+                          cursor:
+                            faded ||
+                            answerSubmitting
+                              ? "default"
+                              : "pointer",
+                          opacity:
+                            getOpacity(
+                              choice.image_key
+                            ),
+                          transition:
+                            "all 0.25s ease",
+                          boxShadow:
+                            "0 3px 14px rgba(13,33,55,0.06)",
+                          fontFamily: P,
+                        }}
+                      >
+                        <div
+                          style={{
+                            minHeight: 225,
+                            borderRadius: 15,
+                            background: BG,
+                            display:
+                              "flex",
+                            alignItems:
+                              "center",
+                            justifyContent:
+                              "center",
+                            overflow:
+                              "hidden",
+                          }}
+                        >
+                          <img
+                            src={`${IMAGE_BASE_PATH}/${choice.image_key}.png`}
+                            alt={choice.image_key.replaceAll(
+                              "_",
+                              " "
+                            )}
+                            draggable={
+                              false
+                            }
+                            style={{
+                              width: 195,
+                              height: 195,
+                              objectFit:
+                                "contain",
+                            }}
+                            onError={(
+                              event
+                            ) => {
+                              console.error(
+                                "Question image not found:",
+                                choice.image_key
+                              );
+
+                              event.currentTarget.style.opacity =
+                                "0.15";
+                            }}
+                          />
+                        </div>
+
+                        {selected &&
+                          answerSubmitting && (
+                            <div
+                              style={{
+                                marginTop: 10,
+                                color: MUTED,
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              Checking...
+                            </div>
+                          )}
+
+                        {attempts > 0 &&
+                          !answerSubmitting && (
+                            <div
+                              style={{
+                                marginTop: 10,
+                                color: MUTED,
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              Try another picture
+                            </div>
+                          )}
+                      </button>
+                    );
+                  }
+                )}
+              </div>
+
+              {feedback &&
+                !feedback.correct && (
+                  <div
+                    style={{
+                      marginTop: 20,
+                      background:
+                        WARNING_BG,
+                      border:
+                        "1px solid #fed7aa",
+                      borderRadius: 15,
+                      padding:
+                        "14px 16px",
+                      textAlign:
+                        "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color:
+                          WARNING_TEXT,
+                        fontWeight: 800,
+                        fontSize: 14,
+                      }}
+                    >
+                      Not quite. Try another picture.
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: 4,
+                        color: MUTED,
+                        fontSize: 12,
+                      }}
+                    >
+                      Mastery updated by the
+                      adaptive engine.
+                    </div>
+                  </div>
+                )}
+
+              {question.choices.every(
+                (choice) =>
+                  isFadedOut(
+                    choice.image_key
+                  )
+              ) && (
+                <div
+                  style={{
+                    marginTop: 20,
+                    background:
+                      LIGHT_BLUE,
+                    border:
+                      `1px solid ${BORDER}`,
+                    borderRadius: 16,
+                    padding:
+                      "16px 18px",
+                    textAlign:
+                      "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      color: TEXT,
+                      fontSize: 15,
+                      fontWeight: 800,
+                    }}
+                  >
+                    Let&apos;s learn this concept
+                    again.
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void loadTeaching();
+                    }}
+                    style={{
+                      marginTop: 12,
+                      padding:
+                        "11px 18px",
+                      borderRadius: 12,
+                      border: "none",
+                      background:
+                        BLUE,
+                      color:
+                        WHITE,
+                      fontFamily: P,
+                      fontSize: 14,
+                      fontWeight: 800,
+                      cursor:
+                        "pointer",
+                    }}
+                  >
+                    Learn Again →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+        {/* -----------------------------------------------------
+            STAGE 3 — SUCCESS / BKT RESULT
+        ------------------------------------------------------ */}
+        {!loading &&
+          phase === "feedback" &&
+          feedback?.correct && (
+            <div
+              style={{
+                background:
+                  WHITE,
+                borderRadius: 22,
+                padding: 34,
+                textAlign:
+                  "center",
+                border:
+                  `1px solid ${BORDER}`,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 52,
+                  marginBottom: 10,
+                }}
+              >
+                🎉
+              </div>
+
+              <h2
+                style={{
+                  margin:
+                    "0 0 8px",
+                  color: SUCCESS,
+                  fontSize: 23,
+                  fontWeight: 800,
+                }}
+              >
+                Correct!
+              </h2>
+
+              <p
+                style={{
+                  margin:
+                    "0 0 20px",
+                  color: TEXT,
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                }}
+              >
+                You learned the concept and
+                answered the picture question
+                correctly.
+              </p>
+
+              <div
+                style={{
+                  background:
+                    "#f0fdf4",
+                  border:
+                    "1px solid #bbf7d0",
+                  borderRadius:
+                    16,
+                  padding: 16,
+                  marginBottom: 20,
+                }}
+              >
+                <div
+                  style={{
+                    color:
+                      "#166534",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  Previous Mastery
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 2,
+                    color: SUCCESS,
+                    fontSize: 18,
+                    fontWeight: 900,
+                  }}
+                >
+                  {Math.round(
+                    feedback.previous_mastery *
+                      100
+                  )}
+                  %
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 8,
+                    color:
+                      "#166534",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  New Mastery
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 2,
+                    color: SUCCESS,
+                    fontSize: 22,
+                    fontWeight: 900,
+                  }}
+                >
+                  {Math.round(
+                    feedback.new_mastery *
+                      100
+                  )}
+                  %
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void loadTeaching();
+                }}
+                style={{
+                  width: "100%",
+                  padding:
+                    "15px 18px",
+                  borderRadius: 14,
+                  border: "none",
+                  background:
+                    BLUE,
+                  color:
+                    WHITE,
+                  fontFamily: P,
+                  fontSize: 15,
+                  fontWeight: 800,
+                  cursor:
+                    "pointer",
+                }}
+              >
+                Next Adaptive Lesson →
+              </button>
+            </div>
+          )}
       </div>
     </div>
   );
