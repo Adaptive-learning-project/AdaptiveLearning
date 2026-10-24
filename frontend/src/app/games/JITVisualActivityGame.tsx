@@ -13,8 +13,8 @@ import {
 
 interface JITVisualActivityGameProps {
   onScore?: (score: number) => void;
-  studentId: string;
-  unitId: string;
+  studentId?: string;
+  unitId?: string;
   subtopicId?: string;
 }
 

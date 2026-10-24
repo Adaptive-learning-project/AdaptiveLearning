@@ -324,28 +324,12 @@ filenames.
 """
 
 ALLOWED_IMAGE_KEYS = {
-    # Balls
+    "tile_red",
+    "tile_green",
+    "tile_blue",
+    "tile_yellow",
     "ball_big_red",
-    "ball_small_red",
-    "ball_big_blue",
-    "ball_small_blue",
-    "ball_big_green",
     "ball_small_green",
-
-    # Fruits
-    "apple_red",
-    "apple_green",
-
-    # Animals
-    "dog",
-    "cat",
-    "bird",
-
-    # Daily-life objects
-    "toothbrush",
-    "toothpaste",
-    "soap",
-    "comb",
 }
 
 
@@ -630,29 +614,12 @@ class JITTeachingResponse(BaseModel):
 
 
 class JITQuestionRequest(BaseModel):
-    """
-    Request sent after the learner completes the teaching stage.
+    student_id: str
+    unit_id: Optional[str] = None
+    subtopic_id: Optional[str] = None
 
-    The frontend sends learner/context identifiers only. The backend must
-    retrieve the stored teaching content from the active learning session and
-    pass that content to the question-generation LLM.
-    """
-
-    student_id: str = Field(
-        ...,
-        min_length=1,
-        description="Stable learner identifier",
-    )
-
-    unit_id: Optional[str] = Field(
-        default=None,
-        description="Current curriculum unit identifier",
-    )
-
-    subtopic_id: Optional[str] = Field(
-        default=None,
-        description="Current subtopic/concept identifier",
-    )
+    class Config:
+        extra = "ignore"
 
 
 # -----------------------------------------------------------------------------
@@ -738,3 +705,28 @@ class JITActivityResponse(BaseModel):
     model: Optional[str] = None
 
     generation_attempts: int = 1
+
+# backend/app/schemas.py
+from pydantic import BaseModel, Field
+from typing import List, Literal, Optional
+
+class VectorChoice(BaseModel):
+    id: str = Field(..., description="Unique choice ID, e.g. 'c1', 'c2'")
+    shape: Literal["square", "circle", "triangle", "star", "rectangle"] = "square"
+    color_hex: str = Field(..., description="Valid 6-digit hex code, e.g. '#EF4444'")
+    size: Literal["small", "medium", "large"] = "medium"
+    label_en: str = Field(..., description="English concept label")
+    label_ta: str = Field(..., description="Colloquial Tamil label")
+    is_correct: bool
+
+class DynamicTeachingContent(BaseModel):
+    phase: Literal["teach"] = "teach"
+    spoken_teaching: str = Field(..., max_length=200)
+    spoken_tamil: str = Field(..., max_length=200)
+    visual: VectorChoice
+
+class DynamicQuestionActivity(BaseModel):
+    activity_type: Literal["vector_choice"] = "vector_choice"
+    spoken_prompt: str = Field(..., max_length=100)
+    spoken_tamil: str = Field(..., max_length=100)
+    choices: List[VectorChoice] = Field(..., min_length=2, max_length=3)

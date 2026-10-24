@@ -395,9 +395,28 @@ Generate valid JSON only.
 
 
 JIT_TEACHING_SYSTEM_PROMPT = """
-You are the TEACHING stage of an adaptive learning system.
+You are the TEACHING stage for early childhood special education (ages 4-7 with developmental delays).
+Your sole task is to introduce ONE single color tile.
 
-Your job is to teach ONE small learning objective before any question is asked.
+STRICT RULES:
+1. Output valid JSON only.
+2. Teach ONLY the single target color tile provided. NEVER mention any other color.
+3. 'spoken_teaching': Short English sentence (e.g., "This is a red tile. Touch the red tile.").
+4. 'spoken_tamil': Natural colloquial home Tamil (பேச்சுத் தமிழ், e.g., "இதுதான் சிகப்பு டைல். அத தொடு பாப்போம்!").
+5. visuals: Exactly 1 visual for the target tile.
+
+JSON FORMAT:
+{
+  "phase": "teach",
+  "spoken_teaching": "This is a red tile. Touch the red tile.",
+  "spoken_tamil": "இதுதான் சிகப்பு டைல். அத தொடு பாப்போம்!",
+  "visuals": [
+    {
+      "image_key": "tile_red",
+      "role": "Target color tile"
+    }
+  ]
+}
 
 The learner may have limited reading ability, so teaching must be:
 - simple
@@ -429,28 +448,46 @@ STRICT OUTPUT RULES:
 13. Do not teach concepts that are not in the learning objective.
 14. Do not change the requested difficulty.
 15. Do not rely on the learner reading long text.
-
-RETURN THIS SHAPE:
-{
-  "phase": "teach",
-  "spoken_teaching": "short simple teaching statement",
-  "visuals": [
-    {
-      "image_key": "allowed_asset_key",
-      "role": "what this picture demonstrates"
-    }
-  ]
-}
 """
 
 
 JIT_QUESTION_SYSTEM_PROMPT = """
-You are the QUESTION stage of an adaptive learning system.
+You are the QUESTION compiler for early childhood discrimination tasks.
+Generate exactly ONE binary or 3-way discrimination trial testing what was just taught.
 
-The learner has ALREADY been taught a concept.
+CRITICAL RULES:
+1. Output strictly valid JSON.
+2. 'spoken_prompt': Action command under 6 words (e.g. "Touch the red square").
+3. 'spoken_tamil': Spoken colloquial Tamil command (e.g. "சிகப்பு சதுரத்த தொடுங்க!").
+4. 'choices': Array of 2 or 3 vector items. Exactly ONE item must have is_correct=true.
+5. Provide high visual contrast between target and distractor (different color, shape, or size as appropriate).
 
-Your job is to generate ONE simple visual question that checks ONLY
-the concept that was just taught.
+SCHEMA:
+{
+  "activity_type": "vector_choice",
+  "spoken_prompt": "Touch the red square",
+  "spoken_tamil": "சிகப்பு சதுரத்த தொடு பாப்போம்!",
+  "choices": [
+    {
+      "id": "c1",
+      "shape": "square",
+      "color_hex": "#EF4444",
+      "size": "medium",
+      "label_en": "Red Square",
+      "label_ta": "சிகப்பு சதுரம்",
+      "is_correct": true
+    },
+    {
+      "id": "c2",
+      "shape": "square",
+      "color_hex": "#22C55E",
+      "size": "medium",
+      "label_en": "Green Square",
+      "label_ta": "பச்சை சதுரம்",
+      "is_correct": false
+    }
+  ]
+}
 
 IMPORTANT ARCHITECTURAL RULE:
 - The learning objective, difficulty, activity type, and allowed assets are
@@ -595,9 +632,9 @@ def _prepare_d1_request_context(
         dict.fromkeys(allowed_image_keys or [])
     )
 
-    if len(allowed_image_keys) < 2:
+    if len(allowed_image_keys) < 1:
         raise ValueError(
-            "At least 2 image keys are required for a visual activity."
+            "At least 1 image keys are required for a visual activity."
         )
 
     invalid_requested_keys = [

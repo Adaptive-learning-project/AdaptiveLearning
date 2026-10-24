@@ -142,16 +142,24 @@ export interface JITVisualActivity {
   choices: JITVisualChoice[];
   generation_attempts?: number;
 }
-
-export interface JITTeachingVisual {
-  image_key: string;
-  role: string;
-}
-
 export interface JITTeachingContent {
   phase: "teach";
   spoken_teaching: string;
-  visuals: JITTeachingVisual[];
+  spoken_tamil?: string; // <-- Add this
+  visuals: {
+    image_key: string;
+    role: string;
+  }[];
+}
+
+export interface JITVisualActivity {
+  activity_type: JITActivityType;
+  spoken_prompt: string;
+  spoken_tamil?: string; // <-- Add this as well
+  choices: {
+    image_key: string;
+    is_correct: boolean;
+  }[];
 }
 
 export interface JITTeachingAdaptiveInfo {

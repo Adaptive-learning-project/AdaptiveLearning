@@ -38,50 +38,46 @@ def classify_facp_code(
     if active_scaffold == "HIGHLIGHT_TARGET":
         return CODE_CUEING
 
-    if audio_replay_count > 0:
+    if audio_replay_count > 0 or active_scaffold == "VERBAL_PROMPT":
         return CODE_VERBAL_PROMPT
 
     return CODE_INDEPENDENT
 
 
-def calculate_facp_mastery(history: List[Dict[str, Any]], window_size: int = 5) -> Dict[str, Any]:
+def calculate_facp_mastery(history: list, window_size: int = 5) -> dict:
     """
-    Evaluates whether the student meets the NIMH 80% criterion on the active node.
-    Per FACP rules: Only '+' and 'C' count as passing items toward the 80% threshold.
-    VP, PP, and '-' are recorded for programming, but do not contribute pass points.
+    Per NIMH FACP Guidelines:
+    - Only Independent (+) and Occasional Cueing (C) count as a pass.
+    - VP (Verbal Prompt), PP (Physical Prompt), and (-) do not count as points.
+    - 80% qualifying pass rate in the window triggers milestone mastery.
     """
     if not history:
         return {
             "total_attempts": 0,
-            "counts": {"+": 0, "C": 0, "VP": 0, "PP": 0, "-": 0},
             "qualifying_passes": 0,
-            "pass_percentage": 0.0,
+            "pass_percentage": 0,
             "promotion_eligible": False,
         }
 
-    # Focus on the most recent interaction window for active mastery verification
     recent_trials = history[-window_size:]
-    total = len(recent_trials)
 
-    counts = {"+": 0, "C": 0, "VP": 0, "PP": 0, "-": 0}
-    for item in recent_trials:
-        code = item.get("facp_code", "-")
-        if code in counts:
-            counts[code] += 1
-        else:
-            counts["-"] += 1
+    # Official NIMH Rule: Count only '+' and 'C'
+    qualifying_passes = sum(
+        1 for t in recent_trials if t.get("facp_code") in ["+", "C"]
+    )
 
-    # NIMH Rule: Only '+' and 'C' count for quantification
-    qualifying_passes = counts[CODE_INDEPENDENT] + counts[CODE_CUEING]
-    pass_percentage = round((qualifying_passes / total) * 100.0, 1)
-
-    # 80% pass criteria required for promotion
-    promotion_eligible = pass_percentage >= 80.0 and total >= 3
+    pass_percentage = round((qualifying_passes / len(recent_trials)) * 100, 1)
 
     return {
-        "total_attempts": total,
-        "counts": counts,
+        "total_attempts": len(recent_trials),
         "qualifying_passes": qualifying_passes,
         "pass_percentage": pass_percentage,
-        "promotion_eligible": promotion_eligible,
+        "promotion_eligible": pass_percentage >= 80.0 and len(recent_trials) >= 4,
+        "breakdown": {
+            "+": sum(1 for t in recent_trials if t.get("facp_code") == "+"),
+            "C": sum(1 for t in recent_trials if t.get("facp_code") == "C"),
+            "VP": sum(1 for t in recent_trials if t.get("facp_code") == "VP"),
+            "PP": sum(1 for t in recent_trials if t.get("facp_code") == "PP"),
+            "-": sum(1 for t in recent_trials if t.get("facp_code") == "-"),
+        }
     }
